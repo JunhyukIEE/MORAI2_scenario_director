@@ -28,5 +28,5 @@ scenario_director:
     pure_pursuit.max_lookahead: 15.0
     pure_pursuit.lookahead_ratio: 0.3
 
-    control.loop_hz: 20
+    control.loop_hz: 100
 
