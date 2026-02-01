@@ -77,7 +77,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config launch lines
+install(DIRECTORY config launch lines map
   DESTINATION share/${PROJECT_NAME}
 )
 

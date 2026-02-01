@@ -170,8 +170,19 @@ private:
 
   void processImage(const CameraConfig &cfg, const uint8_t *data, size_t len) {
     try {
+      // Check for MORAI format: 4-byte header + JPEG data
+      // Header format: [size (4 bytes little-endian)] [JPEG data starting with FF D8]
+      const uint8_t *img_start = data;
+      size_t img_len = len;
+
+      if (len > 4 && data[4] == 0xFF && data[5] == 0xD8) {
+        // MORAI format detected: skip 4-byte header
+        img_start = data + 4;
+        img_len = len - 4;
+      }
+
       // Try to decode as JPEG/PNG
-      std::vector<uint8_t> img_data(data, data + len);
+      std::vector<uint8_t> img_data(img_start, img_start + img_len);
       cv::Mat image = cv::imdecode(img_data, cv::IMREAD_COLOR);
 
       if (image.empty()) {
