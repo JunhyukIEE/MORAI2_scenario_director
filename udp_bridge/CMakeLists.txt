@@ -16,6 +16,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(morai_msgs REQUIRED)
 
 include_directories(include)
 
@@ -32,6 +33,7 @@ ament_target_dependencies(udp_sender_node
   rclcpp
   std_msgs
   geometry_msgs
+  morai_msgs
 )
 
 add_executable(camera_receiver_node src/camera_receiver_node.cpp)

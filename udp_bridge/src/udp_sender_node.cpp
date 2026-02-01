@@ -1,6 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include <morai_msgs/msg/ctrl_cmd.hpp>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -102,7 +102,7 @@ private:
 
   void setupSubscriptions() {
     // Ego subscriptions
-    ego_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+    ego_cmd_sub_ = create_subscription<morai_msgs::msg::CtrlCmd>(
       "/ego/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::egoCmdCallback, this, std::placeholders::_1));
 
@@ -111,8 +111,8 @@ private:
       std::bind(&UDPSenderNode::egoVelocityCallback, this, std::placeholders::_1));
 
     // NPC subscriptions
-    npc_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-      "/npc/ctrl_cmd", 10,
+    npc_cmd_sub_ = create_subscription<morai_msgs::msg::CtrlCmd>(
+      "/opponent/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::npcCmdCallback, this, std::placeholders::_1));
 
     npc_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
@@ -128,40 +128,25 @@ private:
     npc_current_speed_ = msg->data;
   }
 
-  void egoCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->linear.x, msg->angular.z,
-                                               ego_current_speed_, ego_config_);
+  void egoCmdCallback(const morai_msgs::msg::CtrlCmd::SharedPtr msg) {
+    std::string payload = buildControlPayload(msg->throttle, msg->brake, msg->steering_wheel_angle);
     sendto(socket_fd_, payload.c_str(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
   }
 
-  void npcCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->linear.x, msg->angular.z,
-                                               npc_current_speed_, npc_config_);
+  void npcCmdCallback(const morai_msgs::msg::CtrlCmd::SharedPtr msg) {
+    std::string payload = buildControlPayload(msg->throttle, msg->brake, msg->steering_wheel_angle);
     sendto(socket_fd_, payload.c_str(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&npc_send_addr_), sizeof(npc_send_addr_));
   }
 
-  std::string buildControlPayload(double target_speed, double steering,
-                                   double current_speed, const ControlConfig &cfg) {
-    steering = std::max(-cfg.steering_limit, std::min(cfg.steering_limit, steering));
-
-    const double speed_error = target_speed - current_speed;
-    double throttle = 0.0;
-    double brake = 0.0;
-
-    if (speed_error > 0.0) {
-      throttle = std::min(cfg.max_throttle, cfg.throttle_kp * speed_error);
-    } else {
-      brake = std::min(cfg.max_brake, cfg.brake_kp * std::abs(speed_error));
-    }
-
+  std::string buildControlPayload(double throttle, double brake, double steering) {
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(4);
     ss << "{"
        << "\"throttle\":" << throttle << ","
        << "\"brake\":" << brake << ","
-       << "\"steering\":" << std::setprecision(6) << steering
+       << "\"steering_wheel_angle\":" << std::setprecision(6) << steering
        << "}";
 
     return ss.str();
@@ -181,9 +166,9 @@ private:
   sockaddr_in ego_send_addr_{};
   sockaddr_in npc_send_addr_{};
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr ego_cmd_sub_;
+  rclcpp::Subscription<morai_msgs::msg::CtrlCmd>::SharedPtr ego_cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ego_vel_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr npc_cmd_sub_;
+  rclcpp::Subscription<morai_msgs::msg::CtrlCmd>::SharedPtr npc_cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr npc_vel_sub_;
 };
 
