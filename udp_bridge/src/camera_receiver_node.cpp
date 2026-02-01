@@ -176,8 +176,9 @@ private:
 
       if (image.empty()) {
         // Maybe raw image data - try to interpret as raw BGR
-        // Common resolutions: 640x480, 1280x720, 1920x1080
-        if (len == 640 * 480 * 3) {
+        if (len == 320 * 240 * 3) {
+          image = cv::Mat(240, 320, CV_8UC3, const_cast<uint8_t*>(data)).clone();
+        } else if (len == 640 * 480 * 3) {
           image = cv::Mat(480, 640, CV_8UC3, const_cast<uint8_t*>(data)).clone();
         } else if (len == 1280 * 720 * 3) {
           image = cv::Mat(720, 1280, CV_8UC3, const_cast<uint8_t*>(data)).clone();
