@@ -1,0 +1,12 @@
+npc_controller:
+  ros__parameters:
+    line.optimal_path: "lines/optimal_line.csv"
+    npc.speed_ratio: 0.5
+
+    vehicle.wheelbase: 2.7
+    vehicle.max_steering: 0.55
+
+    pure_pursuit.lookahead_distance: 6.0
+    pure_pursuit.min_lookahead: 3.0
+    pure_pursuit.max_lookahead: 10.0
+    pure_pursuit.lookahead_ratio: 0.2

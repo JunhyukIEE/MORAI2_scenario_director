@@ -1,0 +1,291 @@
+#include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <std_msgs/msg/float64.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <array>
+#include <cmath>
+#include <cctype>
+#include <cstring>
+#include <cstdlib>
+#include <string>
+#include <thread>
+#include <atomic>
+#include <chrono>
+
+namespace {
+
+bool extract_number(const std::string &json, const std::string &key, double &out) {
+  const std::string token = "\"" + key + "\"";
+  size_t pos = json.find(token);
+  if (pos == std::string::npos) {
+    return false;
+  }
+  pos = json.find(':', pos + token.size());
+  if (pos == std::string::npos) {
+    return false;
+  }
+  pos += 1;
+  while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) {
+    ++pos;
+  }
+  const char *start = json.c_str() + pos;
+  char *end = nullptr;
+  double value = std::strtod(start, &end);
+  if (end == start) {
+    return false;
+  }
+  out = value;
+  return true;
+}
+
+std::array<double, 4> euler_to_quaternion(double roll, double pitch, double yaw) {
+  const double cy = std::cos(yaw * 0.5);
+  const double sy = std::sin(yaw * 0.5);
+  const double cp = std::cos(pitch * 0.5);
+  const double sp = std::sin(pitch * 0.5);
+  const double cr = std::cos(roll * 0.5);
+  const double sr = std::sin(roll * 0.5);
+
+  std::array<double, 4> q{};
+  q[0] = sr * cp * cy - cr * sp * sy; // x
+  q[1] = cr * sp * cy + sr * cp * sy; // y
+  q[2] = cr * cp * sy - sr * sp * cy; // z
+  q[3] = cr * cp * cy + sr * sp * sy; // w
+  return q;
+}
+
+}  // namespace
+
+class UDPReceiverNode : public rclcpp::Node {
+public:
+  UDPReceiverNode()
+  : rclcpp::Node("udp_receiver"), running_(true) {
+    declare_parameter<std::string>("udp.recv_ip", "0.0.0.0");
+    declare_parameter<int>("udp.ego_recv_port", 9090);
+    declare_parameter<int>("udp.opponent_recv_port", 9091);
+
+    recv_ip_ = get_parameter("udp.recv_ip").as_string();
+    ego_recv_port_ = get_parameter("udp.ego_recv_port").as_int();
+    opponent_recv_port_ = get_parameter("udp.opponent_recv_port").as_int();
+
+    ego_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/ego/odom", 10);
+    ego_velocity_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/velocity", 10);
+    ego_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/acceleration", 10);
+    ego_steering_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/steering_state", 10);
+
+    opp_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/opponent/odom", 10);
+    opp_velocity_pub_ = create_publisher<std_msgs::msg::Float64>("/opponent/vehicle/velocity", 10);
+    opp_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/opponent/vehicle/acceleration", 10);
+    opp_steering_pub_ = create_publisher<std_msgs::msg::Float64>("/opponent/vehicle/steering_state", 10);
+
+    setup_sockets();
+
+    ego_thread_ = std::thread(&UDPReceiverNode::ego_receive_loop, this);
+    opp_thread_ = std::thread(&UDPReceiverNode::opponent_receive_loop, this);
+
+    RCLCPP_INFO(get_logger(), "UDP Receiver started (ego: %d, opponent: %d)",
+                ego_recv_port_, opponent_recv_port_);
+  }
+
+  ~UDPReceiverNode() override {
+    running_.store(false);
+    if (ego_thread_.joinable()) {
+      ego_thread_.join();
+    }
+    if (opp_thread_.joinable()) {
+      opp_thread_.join();
+    }
+    if (ego_sock_ >= 0) {
+      close(ego_sock_);
+    }
+    if (opp_sock_ >= 0) {
+      close(opp_sock_);
+    }
+  }
+
+private:
+  void setup_sockets() {
+    ego_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
+    opp_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (ego_sock_ < 0 || opp_sock_ < 0) {
+      throw std::runtime_error("Failed to create UDP sockets");
+    }
+
+    int reuse = 1;
+    setsockopt(ego_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    setsockopt(opp_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000; // 100ms timeout
+    setsockopt(ego_sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(opp_sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    sockaddr_in ego_addr{};
+    ego_addr.sin_family = AF_INET;
+    ego_addr.sin_port = htons(static_cast<uint16_t>(ego_recv_port_));
+    ego_addr.sin_addr.s_addr = inet_addr(recv_ip_.c_str());
+
+    sockaddr_in opp_addr{};
+    opp_addr.sin_family = AF_INET;
+    opp_addr.sin_port = htons(static_cast<uint16_t>(opponent_recv_port_));
+    opp_addr.sin_addr.s_addr = inet_addr(recv_ip_.c_str());
+
+    if (bind(ego_sock_, reinterpret_cast<sockaddr*>(&ego_addr), sizeof(ego_addr)) < 0) {
+      throw std::runtime_error("Failed to bind ego UDP socket");
+    }
+    if (bind(opp_sock_, reinterpret_cast<sockaddr*>(&opp_addr), sizeof(opp_addr)) < 0) {
+      throw std::runtime_error("Failed to bind opponent UDP socket");
+    }
+  }
+
+  void ego_receive_loop() {
+    receive_loop(ego_sock_, true);
+  }
+
+  void opponent_receive_loop() {
+    receive_loop(opp_sock_, false);
+  }
+
+  void receive_loop(int sock, bool is_ego) {
+    while (running_.load()) {
+      char buffer[4096];
+      sockaddr_in sender{};
+      socklen_t sender_len = sizeof(sender);
+      const ssize_t len = recvfrom(sock, buffer, sizeof(buffer), 0,
+                                   reinterpret_cast<sockaddr*>(&sender), &sender_len);
+      if (len <= 0) {
+        continue;
+      }
+
+      std::string data(buffer, static_cast<size_t>(len));
+      if (!parse_json_vehicle(data, is_ego)) {
+        parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), is_ego);
+      }
+    }
+  }
+
+  bool parse_json_vehicle(const std::string &data, bool is_ego) {
+    // Quick sanity check
+    if (data.find('{') == std::string::npos) {
+      return false;
+    }
+
+    double x = 0.0, y = 0.0, z = 0.0;
+    double roll = 0.0, pitch = 0.0, yaw = 0.0;
+    double vx = 0.0, vy = 0.0, ax = 0.0, ay = 0.0, steering = 0.0;
+
+    extract_number(data, "x", x);
+    extract_number(data, "y", y);
+    extract_number(data, "z", z);
+    extract_number(data, "roll", roll);
+    extract_number(data, "pitch", pitch);
+    extract_number(data, "yaw", yaw);
+    extract_number(data, "vx", vx);
+    extract_number(data, "vy", vy);
+    extract_number(data, "ax", ax);
+    extract_number(data, "ay", ay);
+    extract_number(data, "steering", steering);
+
+    publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
+    return true;
+  }
+
+  void parse_binary_vehicle(const uint8_t *data, size_t len, bool is_ego) {
+    if (len < 88) {
+      return;
+    }
+
+    double values[11];
+    std::memcpy(values, data, 88);
+
+    publish_vehicle(values[0], values[1], values[2],
+                    values[3], values[4], values[5],
+                    values[6], values[7], values[8], values[9], values[10],
+                    is_ego);
+  }
+
+  void publish_vehicle(double x, double y, double z,
+                       double roll, double pitch, double yaw,
+                       double vx, double vy, double ax, double ay, double steering,
+                       bool is_ego) {
+    auto odom = nav_msgs::msg::Odometry();
+    odom.header.stamp = now();
+    odom.header.frame_id = "world";
+    odom.child_frame_id = is_ego ? "ego_base_link" : "opponent_base_link";
+
+    odom.pose.pose.position.x = x;
+    odom.pose.pose.position.y = y;
+    odom.pose.pose.position.z = z;
+
+    auto q = euler_to_quaternion(roll, pitch, yaw);
+    odom.pose.pose.orientation.x = q[0];
+    odom.pose.pose.orientation.y = q[1];
+    odom.pose.pose.orientation.z = q[2];
+    odom.pose.pose.orientation.w = q[3];
+
+    odom.twist.twist.linear.x = vx;
+    odom.twist.twist.linear.y = vy;
+
+    std_msgs::msg::Float64 vel_msg;
+    vel_msg.data = std::sqrt(vx * vx + vy * vy);
+
+    std_msgs::msg::Float64 accel_msg;
+    accel_msg.data = std::sqrt(ax * ax + ay * ay);
+
+    std_msgs::msg::Float64 steer_msg;
+    steer_msg.data = steering;
+
+    if (is_ego) {
+      ego_odom_pub_->publish(odom);
+      ego_velocity_pub_->publish(vel_msg);
+      ego_accel_pub_->publish(accel_msg);
+      ego_steering_pub_->publish(steer_msg);
+    } else {
+      opp_odom_pub_->publish(odom);
+      opp_velocity_pub_->publish(vel_msg);
+      opp_accel_pub_->publish(accel_msg);
+      opp_steering_pub_->publish(steer_msg);
+    }
+  }
+
+  std::string recv_ip_;
+  int ego_recv_port_ = 9090;
+  int opponent_recv_port_ = 9091;
+
+  int ego_sock_ = -1;
+  int opp_sock_ = -1;
+
+  std::atomic<bool> running_;
+  std::thread ego_thread_;
+  std::thread opp_thread_;
+
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ego_odom_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_velocity_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_accel_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_steering_pub_;
+
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr opp_odom_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr opp_velocity_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr opp_accel_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr opp_steering_pub_;
+};
+
+int main(int argc, char **argv) {
+  rclcpp::init(argc, argv);
+  try {
+    auto node = std::make_shared<UDPReceiverNode>();
+    rclcpp::spin(node);
+  } catch (const std::exception &e) {
+    fprintf(stderr, "UDPReceiverNode error: %s\n", e.what());
+  }
+  rclcpp::shutdown();
+  return 0;
+}

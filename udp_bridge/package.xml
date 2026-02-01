@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>udp_bridge</name>
+  <version>0.1.0</version>
+  <description>UDP receiver/sender nodes for MORAI2 bridge.</description>
+  <maintainer email="you@example.com">ljh</maintainer>
+  <license>TODO: License</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>libopencv-dev</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

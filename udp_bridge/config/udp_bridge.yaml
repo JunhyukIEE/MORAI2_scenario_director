@@ -1,0 +1,39 @@
+udp_receiver:
+  ros__parameters:
+    udp.recv_ip: "0.0.0.0"
+    udp.ego_recv_port: 9090
+    udp.opponent_recv_port: 9091
+
+udp_sender:
+  ros__parameters:
+    udp.send_ip: "127.0.0.1"
+    udp.send_port: 9093
+    control.throttle_kp: 0.1
+    control.brake_kp: 0.1
+    control.max_throttle: 1.0
+    control.max_brake: 1.0
+    control.steering_limit: 0.55
+
+camera_receiver:
+  ros__parameters:
+    udp.recv_ip: "0.0.0.0"
+
+    # Front camera
+    camera.front.port: 6666
+    camera.front.enable: true
+
+    # Left front camera
+    camera.left_front.port: 7700
+    camera.left_front.enable: true
+
+    # Left rear camera
+    camera.left_rear.port: 7755
+    camera.left_rear.enable: true
+
+    # Right front camera
+    camera.right_front.port: 8800
+    camera.right_front.enable: true
+
+    # Right rear camera
+    camera.right_rear.port: 8855
+    camera.right_rear.enable: true
