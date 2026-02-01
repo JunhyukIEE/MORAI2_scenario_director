@@ -12,7 +12,6 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -25,14 +24,11 @@ ament_target_dependencies(udp_receiver_node
   rclcpp
   std_msgs
   nav_msgs
-  geometry_msgs
 )
 
 add_executable(udp_sender_node src/udp_sender_node.cpp)
 ament_target_dependencies(udp_sender_node
   rclcpp
-  std_msgs
-  geometry_msgs
   morai_msgs
 )
 
