@@ -18,7 +18,6 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
-find_package(morai_msgs REQUIRED)
 
 include_directories(include)
 
@@ -53,7 +52,6 @@ ament_target_dependencies(scenario_director_node
   sensor_msgs
   cv_bridge
   ament_index_cpp
-  morai_msgs
 )
 
 target_link_libraries(scenario_director_node scenario_core ${OpenCV_LIBS} yaml-cpp)
@@ -63,8 +61,8 @@ ament_target_dependencies(npc_controller_node
   rclcpp
   std_msgs
   nav_msgs
+  geometry_msgs
   ament_index_cpp
-  morai_msgs
 )
 
 target_link_libraries(npc_controller_node scenario_core ${OpenCV_LIBS} yaml-cpp)

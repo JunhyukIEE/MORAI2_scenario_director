@@ -1,5 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
-#include <morai_msgs/msg/ctrl_cmd.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -56,23 +56,23 @@ private:
   }
 
   void setupSubscriptions() {
-    ego_cmd_sub_ = create_subscription<morai_msgs::msg::CtrlCmd>(
+    ego_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/ego/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::egoCmdCallback, this, std::placeholders::_1));
 
-    npc_cmd_sub_ = create_subscription<morai_msgs::msg::CtrlCmd>(
+    npc_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/opponent/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::npcCmdCallback, this, std::placeholders::_1));
   }
 
-  void egoCmdCallback(const morai_msgs::msg::CtrlCmd::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->throttle, msg->brake, msg->steering_wheel_angle);
+  void egoCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+    std::string payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
     sendto(socket_fd_, payload.c_str(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
   }
 
-  void npcCmdCallback(const morai_msgs::msg::CtrlCmd::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->throttle, msg->brake, msg->steering_wheel_angle);
+  void npcCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+    std::string payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
     sendto(socket_fd_, payload.c_str(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&npc_send_addr_), sizeof(npc_send_addr_));
   }
@@ -96,8 +96,8 @@ private:
   sockaddr_in ego_send_addr_{};
   sockaddr_in npc_send_addr_{};
 
-  rclcpp::Subscription<morai_msgs::msg::CtrlCmd>::SharedPtr ego_cmd_sub_;
-  rclcpp::Subscription<morai_msgs::msg::CtrlCmd>::SharedPtr npc_cmd_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr ego_cmd_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr npc_cmd_sub_;
 };
 
 int main(int argc, char **argv) {

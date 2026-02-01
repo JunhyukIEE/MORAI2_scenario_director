@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
-#include <morai_msgs/msg/ctrl_cmd.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -85,7 +85,7 @@ public:
       "/opponent/odom", 10, std::bind(&NPCControllerNode::odomCallback, this, std::placeholders::_1));
     vel_sub_ = create_subscription<std_msgs::msg::Float64>(
       "/opponent/vehicle/velocity", 10, std::bind(&NPCControllerNode::velocityCallback, this, std::placeholders::_1));
-    cmd_pub_ = create_publisher<morai_msgs::msg::CtrlCmd>("/opponent/ctrl_cmd", 10);
+    cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("/opponent/ctrl_cmd", 10);
 
     timer_ = create_wall_timer(std::chrono::milliseconds(50),
                                std::bind(&NPCControllerNode::controlLoop, this));
@@ -127,10 +127,10 @@ private:
     // Clamp steering
     steering = std::max(-max_steering_, std::min(max_steering_, steering));
 
-    morai_msgs::msg::CtrlCmd cmd;
-    cmd.throttle = throttle;
-    cmd.brake = brake;
-    cmd.steering_wheel_angle = steering;
+    geometry_msgs::msg::Twist cmd;
+    cmd.linear.x = throttle;
+    cmd.linear.y = brake;
+    cmd.angular.z = steering;
     cmd_pub_->publish(cmd);
   }
 
@@ -140,7 +140,7 @@ private:
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr vel_sub_;
-  rclcpp::Publisher<morai_msgs::msg::CtrlCmd>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   double speed_ratio_ = 0.5;
