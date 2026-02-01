@@ -19,24 +19,69 @@ class UDPSenderNode : public rclcpp::Node {
 public:
   UDPSenderNode()
   : rclcpp::Node("udp_sender") {
+    // UDP parameters
     declare_parameter<std::string>("udp.send_ip", "127.0.0.1");
     declare_parameter<int>("udp.ego_send_port", 9093);
-    declare_parameter<int>("udp.npc_send_port", 9092);
-    declare_parameter<double>("control.throttle_kp", 0.1);
-    declare_parameter<double>("control.brake_kp", 0.1);
-    declare_parameter<double>("control.max_throttle", 1.0);
-    declare_parameter<double>("control.max_brake", 1.0);
-    declare_parameter<double>("control.steering_limit", 0.55);
+    declare_parameter<int>("udp.npc_send_port", 9094);
 
+    // Ego control parameters
+    declare_parameter<double>("ego.throttle_kp", 0.1);
+    declare_parameter<double>("ego.brake_kp", 0.1);
+    declare_parameter<double>("ego.max_throttle", 1.0);
+    declare_parameter<double>("ego.max_brake", 1.0);
+    declare_parameter<double>("ego.steering_limit", 0.55);
+
+    // NPC control parameters
+    declare_parameter<double>("npc.throttle_kp", 0.1);
+    declare_parameter<double>("npc.brake_kp", 0.1);
+    declare_parameter<double>("npc.max_throttle", 1.0);
+    declare_parameter<double>("npc.max_brake", 1.0);
+    declare_parameter<double>("npc.steering_limit", 0.55);
+
+    loadParameters();
+    setupSocket();
+    setupSubscriptions();
+
+    RCLCPP_INFO(get_logger(), "UDP Sender started (ego: %s:%d, npc: %s:%d)",
+                send_ip_.c_str(), ego_send_port_, send_ip_.c_str(), npc_send_port_);
+  }
+
+  ~UDPSenderNode() override {
+    if (socket_fd_ >= 0) {
+      close(socket_fd_);
+    }
+  }
+
+private:
+  struct ControlConfig {
+    double throttle_kp = 0.1;
+    double brake_kp = 0.1;
+    double max_throttle = 1.0;
+    double max_brake = 1.0;
+    double steering_limit = 0.55;
+  };
+
+  void loadParameters() {
     send_ip_ = get_parameter("udp.send_ip").as_string();
     ego_send_port_ = get_parameter("udp.ego_send_port").as_int();
     npc_send_port_ = get_parameter("udp.npc_send_port").as_int();
-    throttle_kp_ = get_parameter("control.throttle_kp").as_double();
-    brake_kp_ = get_parameter("control.brake_kp").as_double();
-    max_throttle_ = get_parameter("control.max_throttle").as_double();
-    max_brake_ = get_parameter("control.max_brake").as_double();
-    steering_limit_ = get_parameter("control.steering_limit").as_double();
 
+    // Ego control config
+    ego_config_.throttle_kp = get_parameter("ego.throttle_kp").as_double();
+    ego_config_.brake_kp = get_parameter("ego.brake_kp").as_double();
+    ego_config_.max_throttle = get_parameter("ego.max_throttle").as_double();
+    ego_config_.max_brake = get_parameter("ego.max_brake").as_double();
+    ego_config_.steering_limit = get_parameter("ego.steering_limit").as_double();
+
+    // NPC control config
+    npc_config_.throttle_kp = get_parameter("npc.throttle_kp").as_double();
+    npc_config_.brake_kp = get_parameter("npc.brake_kp").as_double();
+    npc_config_.max_throttle = get_parameter("npc.max_throttle").as_double();
+    npc_config_.max_brake = get_parameter("npc.max_brake").as_double();
+    npc_config_.steering_limit = get_parameter("npc.steering_limit").as_double();
+  }
+
+  void setupSocket() {
     socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
     if (socket_fd_ < 0) {
       throw std::runtime_error("Failed to create UDP send socket");
@@ -53,7 +98,9 @@ public:
     npc_send_addr_.sin_family = AF_INET;
     npc_send_addr_.sin_port = htons(static_cast<uint16_t>(npc_send_port_));
     npc_send_addr_.sin_addr.s_addr = inet_addr(send_ip_.c_str());
+  }
 
+  void setupSubscriptions() {
     // Ego subscriptions
     ego_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/ego/ctrl_cmd", 10,
@@ -71,18 +118,8 @@ public:
     npc_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
       "/opponent/vehicle/velocity", 10,
       std::bind(&UDPSenderNode::npcVelocityCallback, this, std::placeholders::_1));
-
-    RCLCPP_INFO(get_logger(), "UDP Sender started (ego: %s:%d, npc: %s:%d)",
-                send_ip_.c_str(), ego_send_port_, send_ip_.c_str(), npc_send_port_);
   }
 
-  ~UDPSenderNode() override {
-    if (socket_fd_ >= 0) {
-      close(socket_fd_);
-    }
-  }
-
-private:
   void egoVelocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
     ego_current_speed_ = msg->data;
   }
@@ -92,28 +129,31 @@ private:
   }
 
   void egoCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->linear.x, msg->angular.z, ego_current_speed_);
+    std::string payload = buildControlPayload(msg->linear.x, msg->angular.z,
+                                               ego_current_speed_, ego_config_);
     sendto(socket_fd_, payload.c_str(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
   }
 
   void npcCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->linear.x, msg->angular.z, npc_current_speed_);
+    std::string payload = buildControlPayload(msg->linear.x, msg->angular.z,
+                                               npc_current_speed_, npc_config_);
     sendto(socket_fd_, payload.c_str(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&npc_send_addr_), sizeof(npc_send_addr_));
   }
 
-  std::string buildControlPayload(double target_speed, double steering, double current_speed) {
-    steering = std::max(-steering_limit_, std::min(steering_limit_, steering));
+  std::string buildControlPayload(double target_speed, double steering,
+                                   double current_speed, const ControlConfig &cfg) {
+    steering = std::max(-cfg.steering_limit, std::min(cfg.steering_limit, steering));
 
     const double speed_error = target_speed - current_speed;
     double throttle = 0.0;
     double brake = 0.0;
 
     if (speed_error > 0.0) {
-      throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
+      throttle = std::min(cfg.max_throttle, cfg.throttle_kp * speed_error);
     } else {
-      brake = std::min(max_brake_, brake_kp_ * std::abs(speed_error));
+      brake = std::min(cfg.max_brake, cfg.brake_kp * std::abs(speed_error));
     }
 
     std::ostringstream ss;
@@ -129,13 +169,10 @@ private:
 
   std::string send_ip_;
   int ego_send_port_ = 9093;
-  int npc_send_port_ = 9092;
+  int npc_send_port_ = 9094;
 
-  double throttle_kp_ = 0.1;
-  double brake_kp_ = 0.1;
-  double max_throttle_ = 1.0;
-  double max_brake_ = 1.0;
-  double steering_limit_ = 0.55;
+  ControlConfig ego_config_;
+  ControlConfig npc_config_;
 
   double ego_current_speed_ = 0.0;
   double npc_current_speed_ = 0.0;
