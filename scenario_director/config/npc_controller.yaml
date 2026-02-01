@@ -10,3 +10,8 @@ npc_controller:
     pure_pursuit.min_lookahead: 3.0
     pure_pursuit.max_lookahead: 10.0
     pure_pursuit.lookahead_ratio: 0.2
+
+    control.throttle_kp: 0.1
+    control.brake_kp: 0.1
+    control.max_throttle: 1.0
+    control.max_brake: 1.0

@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include <std_msgs/msg/float64.hpp>
+#include <morai_msgs/msg/ctrl_cmd.hpp>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -47,6 +48,10 @@ public:
     declare_parameter<double>("pure_pursuit.min_lookahead", 3.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 10.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.2);
+    declare_parameter<double>("control.throttle_kp", 0.1);
+    declare_parameter<double>("control.brake_kp", 0.1);
+    declare_parameter<double>("control.max_throttle", 1.0);
+    declare_parameter<double>("control.max_brake", 1.0);
 
     const std::string line_path = resolvePath(get_parameter("line.optimal_path").as_string(),
                                               "scenario_director");
@@ -70,9 +75,17 @@ public:
 
     controller_ = std::make_shared<PurePursuitController>(cfg);
 
+    throttle_kp_ = get_parameter("control.throttle_kp").as_double();
+    brake_kp_ = get_parameter("control.brake_kp").as_double();
+    max_throttle_ = get_parameter("control.max_throttle").as_double();
+    max_brake_ = get_parameter("control.max_brake").as_double();
+    max_steering_ = cfg.max_steering;
+
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/npc/odom", 10, std::bind(&NPCControllerNode::odomCallback, this, std::placeholders::_1));
-    cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("/npc/ctrl_cmd", 10);
+      "/opponent/odom", 10, std::bind(&NPCControllerNode::odomCallback, this, std::placeholders::_1));
+    vel_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/opponent/vehicle/velocity", 10, std::bind(&NPCControllerNode::velocityCallback, this, std::placeholders::_1));
+    cmd_pub_ = create_publisher<morai_msgs::msg::CtrlCmd>("/opponent/ctrl_cmd", 10);
 
     timer_ = create_wall_timer(std::chrono::milliseconds(50),
                                std::bind(&NPCControllerNode::controlLoop, this));
@@ -86,7 +99,10 @@ private:
     x_ = msg->pose.pose.position.x;
     y_ = msg->pose.pose.position.y;
     yaw_ = quaternionToYaw(msg->pose.pose.orientation);
-    speed_ = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
+  }
+
+  void velocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+    speed_ = msg->data;
   }
 
   void controlLoop() {
@@ -97,9 +113,24 @@ private:
     auto [steering, target_speed] = controller_->compute(x_, y_, yaw_, speed_, *line_);
     target_speed *= speed_ratio_;
 
-    geometry_msgs::msg::Twist cmd;
-    cmd.linear.x = target_speed;
-    cmd.angular.z = steering;
+    // Compute throttle and brake from speed error
+    const double speed_error = target_speed - speed_;
+    double throttle = 0.0;
+    double brake = 0.0;
+
+    if (speed_error > 0.0) {
+      throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
+    } else {
+      brake = std::min(max_brake_, brake_kp_ * std::abs(speed_error));
+    }
+
+    // Clamp steering
+    steering = std::max(-max_steering_, std::min(max_steering_, steering));
+
+    morai_msgs::msg::CtrlCmd cmd;
+    cmd.throttle = throttle;
+    cmd.brake = brake;
+    cmd.steering_wheel_angle = steering;
     cmd_pub_->publish(cmd);
   }
 
@@ -108,7 +139,8 @@ private:
   std::shared_ptr<PurePursuitController> controller_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr vel_sub_;
+  rclcpp::Publisher<morai_msgs::msg::CtrlCmd>::SharedPtr cmd_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   double speed_ratio_ = 0.5;
@@ -117,6 +149,12 @@ private:
   double yaw_ = 0.0;
   double speed_ = 0.0;
   bool has_pose_ = false;
+
+  double throttle_kp_ = 0.1;
+  double brake_kp_ = 0.1;
+  double max_throttle_ = 1.0;
+  double max_brake_ = 1.0;
+  double max_steering_ = 0.55;
 };
 
 }  // namespace scenario_director

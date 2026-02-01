@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include <morai_msgs/msg/ctrl_cmd.hpp>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -70,6 +70,11 @@ private:
     declare_parameter<double>("vehicle.max_steering", 0.55);
     declare_parameter<double>("vehicle.speed_multiplier", 1.15);
 
+    declare_parameter<double>("control.throttle_kp", 0.1);
+    declare_parameter<double>("control.brake_kp", 0.1);
+    declare_parameter<double>("control.max_throttle", 1.0);
+    declare_parameter<double>("control.max_brake", 1.0);
+
     declare_parameter<double>("selector.overtake_distance", 15.0);
     declare_parameter<double>("selector.overtake_angle", 30.0);
     declare_parameter<double>("selector.min_overtake_speed_diff", 3.0);
@@ -121,6 +126,10 @@ private:
     pp_config_.max_steering = max_steering_;
 
     control_hz_ = get_parameter("control.loop_hz").as_int();
+    throttle_kp_ = get_parameter("control.throttle_kp").as_double();
+    brake_kp_ = get_parameter("control.brake_kp").as_double();
+    max_throttle_ = get_parameter("control.max_throttle").as_double();
+    max_brake_ = get_parameter("control.max_brake").as_double();
   }
 
   void initModules() {
@@ -189,7 +198,7 @@ private:
       "/opponent/vehicle/velocity", 10,
       std::bind(&ScenarioDirectorNode::oppVelocityCallback, this, std::placeholders::_1));
 
-    cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("/ego/ctrl_cmd", 10);
+    cmd_pub_ = create_publisher<morai_msgs::msg::CtrlCmd>("/ego/ctrl_cmd", 10);
 
     const double period = 1.0 / static_cast<double>(control_hz_ > 0 ? control_hz_ : 20);
     control_timer_ = create_wall_timer(
@@ -247,9 +256,24 @@ private:
       ego_state_->speed,
       *line);
 
-    geometry_msgs::msg::Twist cmd;
-    cmd.linear.x = target_speed;
-    cmd.angular.z = steering;
+    // Compute throttle and brake from speed error
+    const double speed_error = target_speed - ego_state_->speed;
+    double throttle = 0.0;
+    double brake = 0.0;
+
+    if (speed_error > 0.0) {
+      throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
+    } else {
+      brake = std::min(max_brake_, brake_kp_ * std::abs(speed_error));
+    }
+
+    // Clamp steering
+    steering = std::max(-max_steering_, std::min(max_steering_, steering));
+
+    morai_msgs::msg::CtrlCmd cmd;
+    cmd.throttle = throttle;
+    cmd.brake = brake;
+    cmd.steering_wheel_angle = steering;
     cmd_pub_->publish(cmd);
 
     const auto state = selector_->getState();
@@ -276,7 +300,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr steering_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr opp_velocity_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<morai_msgs::msg::CtrlCmd>::SharedPtr cmd_pub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
 
   std::string map_dir_;
@@ -292,6 +316,10 @@ private:
   double speed_multiplier_ = 1.15;
 
   int control_hz_ = 20;
+  double throttle_kp_ = 0.1;
+  double brake_kp_ = 0.1;
+  double max_throttle_ = 1.0;
+  double max_brake_ = 1.0;
 
   SelectorConfig selector_config_;
   PurePursuitConfig pp_config_;

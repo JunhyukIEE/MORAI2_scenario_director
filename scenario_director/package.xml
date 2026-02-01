@@ -15,6 +15,7 @@
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>ament_index_cpp</depend>
+  <depend>morai_msgs</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
