@@ -15,3 +15,12 @@ npc_controller:
     control.brake_kp: 0.1
     control.max_throttle: 1.0
     control.max_brake: 1.0
+
+    # Collision avoidance with ego vehicle
+    collision_avoidance.enabled: true
+    collision_avoidance.danger_distance: 5.0    # 위험 거리 (즉시 브레이킹)
+    collision_avoidance.caution_distance: 10.0  # 주의 거리 (점진적 감속)
+    collision_avoidance.ttc_threshold: 2.0      # TTC 임계값 (초)
+    collision_avoidance.side_margin: 2.0        # 횡방향 마진 (같은 차선 판단)
+    collision_avoidance.min_speed_ratio: 0.2    # 최소 속도 비율
+    collision_avoidance.brake_intensity: 0.8    # 브레이킹 강도
