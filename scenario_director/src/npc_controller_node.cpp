@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -121,7 +121,7 @@ public:
     ego_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
       "/ego/vehicle/velocity", 10, std::bind(&NPCControllerNode::egoVelocityCallback, this, std::placeholders::_1));
 
-    cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("/opponent/ctrl_cmd", 10);
+    cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/opponent/ctrl_cmd", 10);
 
     timer_ = create_wall_timer(std::chrono::milliseconds(50),
                                std::bind(&NPCControllerNode::controlLoop, this));
@@ -275,10 +275,10 @@ private:
     // Clamp steering
     steering = std::max(-max_steering_, std::min(max_steering_, steering));
 
-    geometry_msgs::msg::Twist cmd;
-    cmd.linear.x = throttle;
-    cmd.linear.y = brake;
-    cmd.angular.z = steering;
+    scenario_director::msg::VehicleCmd cmd;
+    cmd.throttle = throttle;
+    cmd.brake = brake;
+    cmd.steering = steering;
     cmd_pub_->publish(cmd);
   }
 
@@ -294,7 +294,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ego_vel_sub_;
 
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<scenario_director::msg::VehicleCmd>::SharedPtr cmd_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   // NPC state

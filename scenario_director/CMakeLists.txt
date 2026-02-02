@@ -75,6 +75,7 @@ ament_target_dependencies(npc_controller_node
 )
 
 target_link_libraries(npc_controller_node scenario_core ${OpenCV_LIBS} yaml-cpp)
+target_link_libraries(npc_controller_node ${cpp_typesupport_target})
 
 install(TARGETS
   scenario_core
