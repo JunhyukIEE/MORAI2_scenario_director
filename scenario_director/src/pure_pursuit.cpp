@@ -17,6 +17,7 @@ std::pair<double, double> PurePursuitController::compute(double ego_x, double eg
   Waypoint target = line.getLookaheadPoint(ego_x, ego_y, lookahead);
 
   double steering = calculateSteering(ego_x, ego_y, ego_yaw, target.x, target.y, lookahead);
+  steering *= config_.steering_scale;
   steering = std::clamp(steering, -config_.max_steering, config_.max_steering);
 
   return {steering, target.speed};

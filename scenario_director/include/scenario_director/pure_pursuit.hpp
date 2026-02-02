@@ -14,6 +14,7 @@ struct PurePursuitConfig {
   double max_lookahead = 15.0;
   double lookahead_ratio = 0.3;
   double max_steering = 0.55;
+  double steering_scale = 1.0;
 };
 
 class PurePursuitController {

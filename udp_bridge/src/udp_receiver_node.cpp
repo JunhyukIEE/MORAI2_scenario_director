@@ -12,6 +12,8 @@
 #include <cctype>
 #include <cstring>
 #include <cstdlib>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -198,17 +200,51 @@ private:
   }
 
   void parse_binary_vehicle(const uint8_t *data, size_t len, bool is_ego) {
-    if (len < 88) {
+    // 108 bytes 패킷 구조 (MORAI 공식 포맷):
+    // - 8 bytes: seconds (int64)
+    // - 4 bytes: nanos (int32)
+    // - 24 bytes: vehicle id (string)
+    // = 36 bytes 헤더
+    // - 72 bytes: 18 floats 데이터
+    //
+    // Float 필드 순서:
+    // f[0-2]: x_loc, y_loc, z_loc
+    // f[3-5]: x_rot, y_rot, z_rot (roll, pitch, yaw)
+    // f[6-8]: x_vel, y_vel, z_vel
+    // f[9-11]: x_acc, y_acc, z_acc
+    // f[12-14]: x_ang, y_ang, z_ang (angular velocity)
+    // f[15-17]: throttle, brake, steer_angle
+
+    constexpr size_t HEADER_SIZE = 36;  // 8 + 4 + 24 = 36 bytes
+    constexpr size_t NUM_FLOATS = 18;
+    constexpr size_t EXPECTED_SIZE = HEADER_SIZE + NUM_FLOATS * sizeof(float);
+
+    if (len < EXPECTED_SIZE) {
       return;
     }
 
-    double values[11];
-    std::memcpy(values, data, 88);
+    const uint8_t *payload = data + HEADER_SIZE;
+    float fvalues[NUM_FLOATS];
+    std::memcpy(fvalues, payload, NUM_FLOATS * sizeof(float));
 
-    publish_vehicle(values[0], values[1], values[2],
-                    values[3], values[4], values[5],
-                    values[6], values[7], values[8], values[9], values[10],
-                    is_ego);
+    // 공식 필드 매핑
+    double x = fvalues[0];       // x_loc
+    double y = fvalues[1];       // y_loc
+    double z = fvalues[2];       // z_loc
+    double roll = fvalues[3];    // x_rot
+    double pitch = fvalues[4];   // y_rot
+    double yaw = fvalues[5];     // z_rot
+    double vx = fvalues[6];      // x_vel
+    double vy = fvalues[7];      // y_vel
+    double ax = fvalues[9];      // x_acc
+    double ay = fvalues[10];     // y_acc
+    double steering = fvalues[17]; // steer_angle
+
+    // 디버그: 모든 float 값 출력
+    // Intentionally suppressing verbose per-packet logs.
+    // Intentionally suppressing verbose per-packet logs.
+
+    publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
   }
 
   void publish_vehicle(double x, double y, double z,

@@ -18,6 +18,11 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/VehicleCmd.msg"
+)
 
 include_directories(include)
 
@@ -57,6 +62,8 @@ ament_target_dependencies(scenario_director_node
 )
 
 target_link_libraries(scenario_director_node scenario_core ${OpenCV_LIBS} yaml-cpp)
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(scenario_director_node ${cpp_typesupport_target})
 
 add_executable(npc_controller_node src/npc_controller_node.cpp)
 ament_target_dependencies(npc_controller_node

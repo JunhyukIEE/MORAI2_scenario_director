@@ -1,5 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -8,10 +8,7 @@
 
 #include <cstring>
 #include <functional>
-#include <iomanip>
-#include <sstream>
 #include <string>
-#include <vector>
 
 class UDPSenderNode : public rclcpp::Node {
 public:
@@ -57,36 +54,51 @@ private:
   }
 
   void setupSubscriptions() {
-    ego_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+    ego_cmd_sub_ = create_subscription<scenario_director::msg::VehicleCmd>(
       "/ego/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::egoCmdCallback, this, std::placeholders::_1));
 
-    npc_cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+    npc_cmd_sub_ = create_subscription<scenario_director::msg::VehicleCmd>(
       "/opponent/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::npcCmdCallback, this, std::placeholders::_1));
   }
 
-  void egoCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::vector<uint8_t> payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
-    sendto(socket_fd_, payload.data(), payload.size(), 0,
+  void egoCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg) {
+    // MORAI 포맷: little-endian, 3 doubles (throttle, brake, steering_wheel_deg)
+    // steering: rad -> deg 변환만 (180/π ≈ 57.3)
+    constexpr double RAD_TO_DEG = 57.2957795131;
+
+    double throttle = msg->throttle;
+    double brake = msg->brake;
+    double steering_deg = msg->steering * RAD_TO_DEG;
+
+    uint8_t payload[24];  // 3 doubles = 24 bytes
+    std::memcpy(payload, &throttle, sizeof(double));
+    std::memcpy(payload + 8, &brake, sizeof(double));
+    std::memcpy(payload + 16, &steering_deg, sizeof(double));
+
+    sendto(socket_fd_, payload, sizeof(payload), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
+
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500,
+                         "[ego] throttle=%.3f brake=%.3f steer=%.4f rad -> %.1f deg",
+                         throttle, brake, msg->steering, steering_deg);
   }
 
-  void npcCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::vector<uint8_t> payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
-    sendto(socket_fd_, payload.data(), payload.size(), 0,
+  void npcCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg) {
+    constexpr double RAD_TO_DEG = 57.2957795131;
+
+    double throttle = msg->throttle;
+    double brake = msg->brake;
+    double steering_deg = msg->steering * RAD_TO_DEG;
+
+    uint8_t payload[24];
+    std::memcpy(payload, &throttle, sizeof(double));
+    std::memcpy(payload + 8, &brake, sizeof(double));
+    std::memcpy(payload + 16, &steering_deg, sizeof(double));
+
+    sendto(socket_fd_, payload, sizeof(payload), 0,
            reinterpret_cast<sockaddr*>(&npc_send_addr_), sizeof(npc_send_addr_));
-  }
-
-  std::vector<uint8_t> buildControlPayload(double throttle, double brake, double steering) {
-    // 패킷 구조: throttle(8 bytes) + brake(8 bytes) + steering_wheel_angle(8 bytes) = 24 bytes
-    std::vector<uint8_t> payload(24);
-
-    std::memcpy(payload.data(), &throttle, sizeof(double));
-    std::memcpy(payload.data() + 8, &brake, sizeof(double));
-    std::memcpy(payload.data() + 16, &steering, sizeof(double));
-
-    return payload;
   }
 
   std::string send_ip_;
@@ -97,8 +109,8 @@ private:
   sockaddr_in ego_send_addr_{};
   sockaddr_in npc_send_addr_{};
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr ego_cmd_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr npc_cmd_sub_;
+  rclcpp::Subscription<scenario_director::msg::VehicleCmd>::SharedPtr ego_cmd_sub_;
+  rclcpp::Subscription<scenario_director::msg::VehicleCmd>::SharedPtr npc_cmd_sub_;
 };
 
 int main(int argc, char **argv) {

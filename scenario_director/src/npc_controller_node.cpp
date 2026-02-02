@@ -51,6 +51,7 @@ public:
     declare_parameter<double>("pure_pursuit.min_lookahead", 3.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 10.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.2);
+    declare_parameter<double>("pure_pursuit.steering_scale", 1.0);
     declare_parameter<double>("control.throttle_kp", 0.1);
     declare_parameter<double>("control.brake_kp", 0.1);
     declare_parameter<double>("control.max_throttle", 1.0);
@@ -81,6 +82,7 @@ public:
     cfg.min_lookahead = get_parameter("pure_pursuit.min_lookahead").as_double();
     cfg.max_lookahead = get_parameter("pure_pursuit.max_lookahead").as_double();
     cfg.lookahead_ratio = get_parameter("pure_pursuit.lookahead_ratio").as_double();
+    cfg.steering_scale = get_parameter("pure_pursuit.steering_scale").as_double();
 
     line_manager_ = std::make_shared<LineManager>();
     try {

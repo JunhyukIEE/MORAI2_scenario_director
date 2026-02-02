@@ -15,6 +15,7 @@
   <depend>cv_bridge</depend>
   <depend>libopencv-dev</depend>
   <depend>geometry_msgs</depend>
+  <depend>scenario_director</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

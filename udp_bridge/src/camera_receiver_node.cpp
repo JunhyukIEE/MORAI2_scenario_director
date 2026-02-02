@@ -25,7 +25,7 @@ public:
     setupSockets();
     startThreads();
 
-    RCLCPP_INFO(get_logger(), "Camera Receiver started with %zu cameras", camera_configs_.size());
+    // Startup logging intentionally suppressed.
   }
 
   ~CameraReceiverNode() override {
@@ -88,8 +88,7 @@ private:
         cfg.port = get_parameter(param_prefix + ".port").as_int();
         cfg.topic = topic;
         camera_configs_.push_back(cfg);
-        RCLCPP_INFO(get_logger(), "Camera '%s' enabled on port %d -> %s",
-                    name.c_str(), cfg.port, topic.c_str());
+        // Per-camera enable logging intentionally suppressed.
       }
     }
   }

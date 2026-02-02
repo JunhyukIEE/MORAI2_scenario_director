@@ -2,7 +2,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -117,6 +117,7 @@ private:
     declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.3);
+    declare_parameter<double>("pure_pursuit.steering_scale", 1.0);
 
     declare_parameter<int>("control.loop_hz", 20);
   }
@@ -200,6 +201,7 @@ private:
     pp_config_.max_lookahead = get_parameter("pure_pursuit.max_lookahead").as_double();
     pp_config_.lookahead_ratio = get_parameter("pure_pursuit.lookahead_ratio").as_double();
     pp_config_.max_steering = max_steering_;
+    pp_config_.steering_scale = get_parameter("pure_pursuit.steering_scale").as_double();
 
     control_hz_ = get_parameter("control.loop_hz").as_int();
     throttle_kp_ = get_parameter("control.throttle_kp").as_double();
@@ -274,7 +276,7 @@ private:
       "/opponent/vehicle/velocity", 10,
       std::bind(&ScenarioDirectorNode::oppVelocityCallback, this, std::placeholders::_1));
 
-    cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("/ego/ctrl_cmd", 10);
+    cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/ego/ctrl_cmd", 10);
     strategy_pub_ = create_publisher<std_msgs::msg::String>("/ego/overtake_strategy", 10);
 
     const double period = 1.0 / static_cast<double>(control_hz_ > 0 ? control_hz_ : 20);
@@ -369,19 +371,26 @@ private:
     double throttle = 0.0;
     double brake = 0.0;
 
-    if (speed_error > 0.0) {
+    // 데드존: 속도 오차가 작을 때는 유지 throttle 적용 (가다서다 방지)
+    constexpr double kSpeedDeadzone = 0.5;  // m/s
+    constexpr double kMaintainThrottle = 0.15;  // 속도 유지용 최소 throttle
+
+    if (speed_error > kSpeedDeadzone) {
       throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
-    } else {
+    } else if (speed_error < -kSpeedDeadzone) {
       brake = std::min(max_brake_, brake_kp_ * std::abs(speed_error));
+    } else {
+      // 데드존 내: 속도 유지용 throttle 적용
+      throttle = kMaintainThrottle;
     }
 
     // Clamp steering
     steering = std::max(-max_steering_, std::min(max_steering_, steering));
 
-    geometry_msgs::msg::Twist cmd;
-    cmd.linear.x = throttle;
-    cmd.linear.y = brake;
-    cmd.angular.z = steering;
+    scenario_director::msg::VehicleCmd cmd;
+    cmd.throttle = throttle;
+    cmd.brake = brake;
+    cmd.steering = steering;
     cmd_pub_->publish(cmd);
 
     // 전략 상태 퍼블리시
@@ -415,7 +424,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr steering_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr opp_velocity_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<scenario_director::msg::VehicleCmd>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr strategy_pub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
 
