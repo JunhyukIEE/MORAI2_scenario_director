@@ -56,6 +56,7 @@ public:
     declare_parameter<double>("control.brake_kp", 0.1);
     declare_parameter<double>("control.max_throttle", 1.0);
     declare_parameter<double>("control.max_brake", 1.0);
+    declare_parameter<double>("control.loop_hz", 20.0);
 
     // Collision avoidance parameters
     declare_parameter<bool>("collision_avoidance.enabled", true);

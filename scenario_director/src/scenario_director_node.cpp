@@ -49,6 +49,7 @@ public:
     declare_parameter<double>("control.brake_kp", 0.1);
     declare_parameter<double>("control.max_throttle", 1.0);
     declare_parameter<double>("control.max_brake", 1.0);
+    declare_parameter<double>("control.loop_hz", 20.0);
     declare_parameter<double>("pure_pursuit.lookahead_distance", 8.0);
     declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
