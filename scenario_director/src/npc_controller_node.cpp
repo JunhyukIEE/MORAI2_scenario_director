@@ -41,8 +41,10 @@ class NPCControllerNode : public rclcpp::Node {
 public:
   NPCControllerNode()
   : rclcpp::Node("npc_controller") {
-    declare_parameter<std::string>("line.optimal_path", "lines/optimal_line.csv");
+    declare_parameter<std::string>("line.optimal_path", "map/waypoints.csv");
     declare_parameter<double>("npc.speed_ratio", 0.5);
+    declare_parameter<double>("npc.min_speed_ratio", 0.2);
+    declare_parameter<double>("npc.max_speed_ratio", 1.0);
     declare_parameter<double>("vehicle.wheelbase", 2.7);
     declare_parameter<double>("vehicle.max_steering", 0.55);
     declare_parameter<double>("pure_pursuit.lookahead_distance", 6.0);
@@ -66,6 +68,11 @@ public:
     const std::string line_path = resolvePath(get_parameter("line.optimal_path").as_string(),
                                               "scenario_director");
     speed_ratio_ = get_parameter("npc.speed_ratio").as_double();
+    min_speed_ratio_npc_ = get_parameter("npc.min_speed_ratio").as_double();
+    max_speed_ratio_ = get_parameter("npc.max_speed_ratio").as_double();
+
+    // Clamp speed_ratio to valid range
+    speed_ratio_ = std::max(min_speed_ratio_npc_, std::min(max_speed_ratio_, speed_ratio_));
 
     PurePursuitConfig cfg;
     cfg.wheelbase = get_parameter("vehicle.wheelbase").as_double();
@@ -290,6 +297,8 @@ private:
 
   // NPC state
   double speed_ratio_ = 0.5;
+  double min_speed_ratio_npc_ = 0.2;
+  double max_speed_ratio_ = 1.0;
   double x_ = 0.0;
   double y_ = 0.0;
   double yaw_ = 0.0;

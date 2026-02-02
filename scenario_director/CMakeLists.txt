@@ -80,7 +80,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config launch lines map
+install(DIRECTORY config launch map
   DESTINATION share/${PROJECT_NAME}
 )
 

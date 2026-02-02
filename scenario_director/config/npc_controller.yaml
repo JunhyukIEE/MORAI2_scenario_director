@@ -1,7 +1,11 @@
 npc_controller:
   ros__parameters:
-    line.optimal_path: "lines/optimal_line.csv"
-    npc.speed_ratio: 0.5
+    line.optimal_path: "map/waypoints.csv"
+
+    # NPC 속도 설정
+    npc.speed_ratio: 0.5            # 기본 속도 배율 (waypoint 속도 대비)
+    npc.min_speed_ratio: 0.2        # 최소 속도 배율
+    npc.max_speed_ratio: 1.0        # 최대 속도 배율
 
     vehicle.wheelbase: 2.7
     vehicle.max_steering: 0.55
