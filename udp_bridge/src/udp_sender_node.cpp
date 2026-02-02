@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <vector>
 
 class UDPSenderNode : public rclcpp::Node {
 public:
@@ -66,26 +67,26 @@ private:
   }
 
   void egoCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
-    sendto(socket_fd_, payload.c_str(), payload.size(), 0,
+    std::vector<uint8_t> payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
+    sendto(socket_fd_, payload.data(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
   }
 
   void npcCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    std::string payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
-    sendto(socket_fd_, payload.c_str(), payload.size(), 0,
+    std::vector<uint8_t> payload = buildControlPayload(msg->linear.x, msg->linear.y, msg->angular.z);
+    sendto(socket_fd_, payload.data(), payload.size(), 0,
            reinterpret_cast<sockaddr*>(&npc_send_addr_), sizeof(npc_send_addr_));
   }
 
-  std::string buildControlPayload(double throttle, double brake, double steering) {
-    std::ostringstream ss;
-    ss << std::fixed << std::setprecision(4);
-    ss << "{"
-       << "\"throttle\":" << throttle << ","
-       << "\"brake\":" << brake << ","
-       << "\"steering_wheel_angle\":" << std::setprecision(6) << steering
-       << "}";
-    return ss.str();
+  std::vector<uint8_t> buildControlPayload(double throttle, double brake, double steering) {
+    // 패킷 구조: throttle(8 bytes) + brake(8 bytes) + steering_wheel_angle(8 bytes) = 24 bytes
+    std::vector<uint8_t> payload(24);
+
+    std::memcpy(payload.data(), &throttle, sizeof(double));
+    std::memcpy(payload.data() + 8, &brake, sizeof(double));
+    std::memcpy(payload.data() + 16, &steering, sizeof(double));
+
+    return payload;
   }
 
   std::string send_ip_;

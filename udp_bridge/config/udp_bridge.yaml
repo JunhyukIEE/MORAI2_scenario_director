@@ -6,7 +6,7 @@ udp_receiver:
 
 udp_sender:
   ros__parameters:
-    udp.send_ip: "192.132.72.138"
+    udp.send_ip: "192.132.72.58"
     udp.ego_send_port: 9093
     udp.npc_send_port: 9094
 
