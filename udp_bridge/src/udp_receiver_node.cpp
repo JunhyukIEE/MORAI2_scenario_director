@@ -166,6 +166,19 @@ private:
         continue;
       }
 
+      constexpr ssize_t kExpectedPacketLen = 108;
+      if (len != kExpectedPacketLen) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                             "UDP len=%zd (expected %zd) from %s:%d",
+                             len, kExpectedPacketLen, inet_ntoa(sender.sin_addr),
+                             ntohs(sender.sin_port));
+      }
+
+      if (len == kExpectedPacketLen) {
+        parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), is_ego);
+        continue;
+      }
+
       std::string data(buffer, static_cast<size_t>(len));
       if (!parse_json_vehicle(data, is_ego)) {
         parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), is_ego);
@@ -183,17 +196,28 @@ private:
     double roll = 0.0, pitch = 0.0, yaw = 0.0;
     double vx = 0.0, vy = 0.0, ax = 0.0, ay = 0.0, steering = 0.0;
 
-    extract_number(data, "x", x);
-    extract_number(data, "y", y);
-    extract_number(data, "z", z);
-    extract_number(data, "roll", roll);
-    extract_number(data, "pitch", pitch);
-    extract_number(data, "yaw", yaw);
-    extract_number(data, "vx", vx);
-    extract_number(data, "vy", vy);
-    extract_number(data, "ax", ax);
-    extract_number(data, "ay", ay);
-    extract_number(data, "steering", steering);
+    const bool ok_x = extract_number(data, "x", x);
+    const bool ok_y = extract_number(data, "y", y);
+    const bool ok_z = extract_number(data, "z", z);
+    const bool ok_roll = extract_number(data, "roll", roll);
+    const bool ok_pitch = extract_number(data, "pitch", pitch);
+    const bool ok_yaw = extract_number(data, "yaw", yaw);
+    const bool ok_vx = extract_number(data, "vx", vx);
+    const bool ok_vy = extract_number(data, "vy", vy);
+    const bool ok_ax = extract_number(data, "ax", ax);
+    const bool ok_ay = extract_number(data, "ay", ay);
+    const bool ok_steer = extract_number(data, "steering", steering);
+
+    if (!(ok_x && ok_y && ok_z && ok_roll && ok_pitch && ok_yaw &&
+          ok_vx && ok_vy && ok_ax && ok_ay && ok_steer)) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "JSON parse missing fields (ego=%d): "
+                           "x=%d y=%d z=%d roll=%d pitch=%d yaw=%d "
+                           "vx=%d vy=%d ax=%d ay=%d steering=%d",
+                           static_cast<int>(is_ego),
+                           ok_x, ok_y, ok_z, ok_roll, ok_pitch, ok_yaw,
+                           ok_vx, ok_vy, ok_ax, ok_ay, ok_steer);
+    }
 
     publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
     return true;
