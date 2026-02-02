@@ -70,10 +70,12 @@ public:
     declare_parameter<std::string>("udp.recv_ip", "0.0.0.0");
     declare_parameter<int>("udp.ego_recv_port", 9090);
     declare_parameter<int>("udp.opponent_recv_port", 9091);
+    declare_parameter<bool>("udp.angles_in_degrees", true);
 
     recv_ip_ = get_parameter("udp.recv_ip").as_string();
     ego_recv_port_ = get_parameter("udp.ego_recv_port").as_int();
     opponent_recv_port_ = get_parameter("udp.opponent_recv_port").as_int();
+    angles_in_degrees_ = get_parameter("udp.angles_in_degrees").as_bool();
 
     ego_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/ego/odom", 10);
     ego_velocity_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/velocity", 10);
@@ -167,13 +169,6 @@ private:
       }
 
       constexpr ssize_t kExpectedPacketLen = 108;
-      if (len != kExpectedPacketLen) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                             "UDP len=%zd (expected %zd) from %s:%d",
-                             len, kExpectedPacketLen, inet_ntoa(sender.sin_addr),
-                             ntohs(sender.sin_port));
-      }
-
       if (len == kExpectedPacketLen) {
         parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), is_ego);
         continue;
@@ -208,15 +203,11 @@ private:
     const bool ok_ay = extract_number(data, "ay", ay);
     const bool ok_steer = extract_number(data, "steering", steering);
 
-    if (!(ok_x && ok_y && ok_z && ok_roll && ok_pitch && ok_yaw &&
-          ok_vx && ok_vy && ok_ax && ok_ay && ok_steer)) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                           "JSON parse missing fields (ego=%d): "
-                           "x=%d y=%d z=%d roll=%d pitch=%d yaw=%d "
-                           "vx=%d vy=%d ax=%d ay=%d steering=%d",
-                           static_cast<int>(is_ego),
-                           ok_x, ok_y, ok_z, ok_roll, ok_pitch, ok_yaw,
-                           ok_vx, ok_vy, ok_ax, ok_ay, ok_steer);
+    if (angles_in_degrees_) {
+      constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+      roll *= kDegToRad;
+      pitch *= kDegToRad;
+      yaw *= kDegToRad;
     }
 
     publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
@@ -264,9 +255,12 @@ private:
     double ay = fvalues[10];     // y_acc
     double steering = fvalues[17]; // steer_angle
 
-    // 디버그: 모든 float 값 출력
-    // Intentionally suppressing verbose per-packet logs.
-    // Intentionally suppressing verbose per-packet logs.
+    if (angles_in_degrees_) {
+      constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+      roll *= kDegToRad;
+      pitch *= kDegToRad;
+      yaw *= kDegToRad;
+    }
 
     publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
   }
@@ -321,6 +315,7 @@ private:
 
   int ego_sock_ = -1;
   int opp_sock_ = -1;
+  bool angles_in_degrees_ = true;
 
   std::atomic<bool> running_;
   std::thread ego_thread_;
