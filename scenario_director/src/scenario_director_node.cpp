@@ -1,12 +1,15 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "scenario_director/line_manager.hpp"
+#include "scenario_director/overtake_strategy.hpp"
 #include "scenario_director/pure_pursuit.hpp"
+#include "scenario_director/slow_in_out.hpp"
 #include "scenario_director/track_boundary.hpp"
 #include "scenario_director/waypoint_selector.hpp"
 
@@ -85,6 +88,31 @@ private:
     declare_parameter<double>("selector.ttc_threshold", 2.0);
     declare_parameter<double>("selector.rear_danger_angle", 120.0);
 
+    declare_parameter<bool>("strategy.slow_in_out.enabled", true);
+    declare_parameter<double>("strategy.slow_in_out.apex_search_distance", 25.0);
+    declare_parameter<double>("strategy.slow_in_out.entry_distance", 12.0);
+    declare_parameter<double>("strategy.slow_in_out.exit_distance", 12.0);
+    declare_parameter<double>("strategy.slow_in_out.entry_speed_scale", 0.85);
+    declare_parameter<double>("strategy.slow_in_out.exit_speed_scale", 1.05);
+    declare_parameter<double>("strategy.slow_in_out.curvature_threshold", 0.08);
+    declare_parameter<bool>("strategy.slow_in_out.aggressive_exit", true);
+    declare_parameter<double>("strategy.slow_in_out.overtake_exit_speed_scale", 1.15);
+    declare_parameter<double>("strategy.slow_in_out.overtake_entry_speed_scale", 0.80);
+
+    // Overtake Strategy parameters
+    declare_parameter<double>("strategy.overtake.late_brake_distance", 8.0);
+    declare_parameter<double>("strategy.overtake.late_brake_speed_scale", 0.75);
+    declare_parameter<double>("strategy.overtake.block_pass_offset", 2.5);
+    declare_parameter<double>("strategy.overtake.dummy_trigger_distance", 20.0);
+    declare_parameter<double>("strategy.overtake.dummy_offset", 1.5);
+    declare_parameter<double>("strategy.overtake.dummy_duration", 0.5);
+    declare_parameter<double>("strategy.overtake.dummy_switch_threshold", 0.8);
+    declare_parameter<double>("strategy.overtake.outside_entry_speed_scale", 0.9);
+    declare_parameter<double>("strategy.overtake.outside_exit_boost", 1.15);
+    declare_parameter<double>("strategy.overtake.chicane_detection_dist", 40.0);
+    declare_parameter<double>("strategy.overtake.min_corner_curvature", 0.05);
+    declare_parameter<double>("strategy.overtake.apex_search_distance", 50.0);
+
     declare_parameter<double>("pure_pursuit.lookahead_distance", 8.0);
     declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
@@ -117,6 +145,54 @@ private:
     selector_config_.ttc_threshold = get_parameter("selector.ttc_threshold").as_double();
     selector_config_.rear_danger_angle = get_parameter("selector.rear_danger_angle").as_double();
     selector_config_.vehicle_width = vehicle_width_;
+
+    slow_in_out_config_.enabled = get_parameter("strategy.slow_in_out.enabled").as_bool();
+    slow_in_out_config_.apex_search_distance =
+        get_parameter("strategy.slow_in_out.apex_search_distance").as_double();
+    slow_in_out_config_.entry_distance =
+        get_parameter("strategy.slow_in_out.entry_distance").as_double();
+    slow_in_out_config_.exit_distance =
+        get_parameter("strategy.slow_in_out.exit_distance").as_double();
+    slow_in_out_config_.entry_speed_scale =
+        get_parameter("strategy.slow_in_out.entry_speed_scale").as_double();
+    slow_in_out_config_.exit_speed_scale =
+        get_parameter("strategy.slow_in_out.exit_speed_scale").as_double();
+    slow_in_out_config_.curvature_threshold =
+        get_parameter("strategy.slow_in_out.curvature_threshold").as_double();
+    slow_in_out_config_.aggressive_exit =
+        get_parameter("strategy.slow_in_out.aggressive_exit").as_bool();
+    slow_in_out_config_.overtake_exit_speed_scale =
+        get_parameter("strategy.slow_in_out.overtake_exit_speed_scale").as_double();
+    slow_in_out_config_.overtake_entry_speed_scale =
+        get_parameter("strategy.slow_in_out.overtake_entry_speed_scale").as_double();
+    slow_in_out_planner_.setConfig(slow_in_out_config_);
+
+    // Overtake Strategy config
+    overtake_config_.late_brake_distance =
+        get_parameter("strategy.overtake.late_brake_distance").as_double();
+    overtake_config_.late_brake_speed_scale =
+        get_parameter("strategy.overtake.late_brake_speed_scale").as_double();
+    overtake_config_.block_pass_offset =
+        get_parameter("strategy.overtake.block_pass_offset").as_double();
+    overtake_config_.dummy_trigger_distance =
+        get_parameter("strategy.overtake.dummy_trigger_distance").as_double();
+    overtake_config_.dummy_offset =
+        get_parameter("strategy.overtake.dummy_offset").as_double();
+    overtake_config_.dummy_duration =
+        get_parameter("strategy.overtake.dummy_duration").as_double();
+    overtake_config_.dummy_switch_threshold =
+        get_parameter("strategy.overtake.dummy_switch_threshold").as_double();
+    overtake_config_.outside_entry_speed_scale =
+        get_parameter("strategy.overtake.outside_entry_speed_scale").as_double();
+    overtake_config_.outside_exit_boost =
+        get_parameter("strategy.overtake.outside_exit_boost").as_double();
+    overtake_config_.chicane_detection_dist =
+        get_parameter("strategy.overtake.chicane_detection_dist").as_double();
+    overtake_config_.min_corner_curvature =
+        get_parameter("strategy.overtake.min_corner_curvature").as_double();
+    overtake_config_.apex_search_distance =
+        get_parameter("strategy.overtake.apex_search_distance").as_double();
+    overtake_planner_.setConfig(overtake_config_);
 
     pp_config_.wheelbase = wheelbase_;
     pp_config_.lookahead_distance = get_parameter("pure_pursuit.lookahead_distance").as_double();
@@ -199,6 +275,7 @@ private:
       std::bind(&ScenarioDirectorNode::oppVelocityCallback, this, std::placeholders::_1));
 
     cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("/ego/ctrl_cmd", 10);
+    strategy_pub_ = create_publisher<std_msgs::msg::String>("/ego/overtake_strategy", 10);
 
     const double period = 1.0 / static_cast<double>(control_hz_ > 0 ? control_hz_ : 20);
     control_timer_ = create_wall_timer(
@@ -249,12 +326,43 @@ private:
       return;
     }
 
+    const DrivingState driving_state = selector_->getState();
+    const bool is_overtaking = selector_->isOvertaking();
+
+    // 추월 전략 적용
+    std::string final_line_name = line_name;
+    double strategy_speed_modifier = 1.0;
+    OvertakeStrategyType active_strategy = OvertakeStrategyType::NONE;
+
+    if (is_overtaking && opp_state_) {
+      StrategyResult strategy = overtake_planner_.planStrategy(
+          *line, *ego_state_, *opp_state_, driving_state, line_name);
+
+      active_strategy = strategy.active_strategy;
+      strategy_speed_modifier = strategy.speed_modifier;
+
+      // 전략이 추천하는 라인으로 변경
+      if (!strategy.recommended_line.empty() && strategy.recommended_line != line_name) {
+        auto new_line = line_manager_->getLine(strategy.recommended_line);
+        if (new_line) {
+          line = new_line;
+          final_line_name = strategy.recommended_line;
+        }
+      }
+    }
+
     auto [steering, target_speed] = controller_->compute(
       ego_state_->x,
       ego_state_->y,
       ego_state_->yaw,
       ego_state_->speed,
       *line);
+
+    // Slow In, Fast Out 적용 (추월 상태 전달)
+    target_speed = slow_in_out_planner_.adjustTargetSpeed(*line, *ego_state_, target_speed, is_overtaking);
+
+    // 전략에서 제공한 속도 배율 적용
+    target_speed *= strategy_speed_modifier;
 
     // Compute throttle and brake from speed error
     const double speed_error = target_speed - ego_state_->speed;
@@ -276,12 +384,19 @@ private:
     cmd.angular.z = steering;
     cmd_pub_->publish(cmd);
 
-    const auto state = selector_->getState();
-    if (state != DrivingState::NORMAL) {
+    // 전략 상태 퍼블리시
+    if (strategy_pub_) {
+      std_msgs::msg::String strategy_msg;
+      strategy_msg.data = OvertakeStrategyPlanner::strategyToString(active_strategy);
+      strategy_pub_->publish(strategy_msg);
+    }
+
+    if (driving_state != DrivingState::NORMAL) {
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-                           "State: %d, Line: %s, Speed: %.1f m/s, Steering: %.1f deg",
-                           static_cast<int>(state), line_name.c_str(), ego_state_->speed,
-                           steering * kRadToDeg);
+                           "State: %d, Strategy: %s, Line: %s, Speed: %.1f m/s, Modifier: %.2f",
+                           static_cast<int>(driving_state),
+                           OvertakeStrategyPlanner::strategyToString(active_strategy).c_str(),
+                           final_line_name.c_str(), ego_state_->speed, strategy_speed_modifier);
     }
   }
 
@@ -301,6 +416,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr opp_velocity_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr strategy_pub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
 
   std::string map_dir_;
@@ -323,6 +439,10 @@ private:
 
   SelectorConfig selector_config_;
   PurePursuitConfig pp_config_;
+  SlowInOutConfig slow_in_out_config_;
+  SlowInOutPlanner slow_in_out_planner_;
+  OvertakeStrategyConfig overtake_config_;
+  OvertakeStrategyPlanner overtake_planner_;
 };
 
 }  // namespace scenario_director

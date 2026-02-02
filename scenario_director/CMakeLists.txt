@@ -23,7 +23,9 @@ include_directories(include)
 
 add_library(scenario_core
   src/line_manager.cpp
+  src/overtake_strategy.cpp
   src/pure_pursuit.cpp
+  src/slow_in_out.cpp
   src/track_boundary.cpp
   src/waypoint_selector.cpp
 )
