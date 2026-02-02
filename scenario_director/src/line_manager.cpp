@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -10,13 +9,9 @@
 
 namespace scenario_director {
 
-RacingLine::RacingLine(std::vector<Waypoint> points, std::string name)
-: name_(std::move(name)), waypoints_(std::move(points)) {
+RacingLine::RacingLine(std::vector<Waypoint> points)
+: waypoints_(std::move(points)) {
   computeCumulativeDistance();
-}
-
-const std::string &RacingLine::name() const {
-  return name_;
 }
 
 size_t RacingLine::size() const {
@@ -25,10 +20,6 @@ size_t RacingLine::size() const {
 
 const std::vector<Waypoint> &RacingLine::points() const {
   return waypoints_;
-}
-
-double RacingLine::totalLength() const {
-  return total_length_;
 }
 
 void RacingLine::computeCumulativeDistance() {
@@ -82,7 +73,7 @@ Waypoint RacingLine::getLookaheadPoint(double x, double y, double lookahead) con
   const double nearest_dist = cumulative_dist_[static_cast<size_t>(nearest_idx)];
   double target_dist = nearest_dist + lookahead;
 
-  if (target_dist > total_length_) {
+  if (total_length_ > 0.0 && target_dist > total_length_) {
     target_dist -= total_length_;
   }
 
@@ -96,17 +87,17 @@ Waypoint RacingLine::getLookaheadPoint(double x, double y, double lookahead) con
 }
 
 void LineManager::setSpeedMultiplier(double multiplier) {
-  speed_multiplier_ = multiplier;
+  speed_multiplier_ = std::max(0.0, multiplier);
 }
 
-double LineManager::speedMultiplier() const {
-  return speed_multiplier_;
+void LineManager::setDefaultSpeed(double speed) {
+  default_speed_ = std::max(0.0, speed);
 }
 
 void LineManager::loadOptimalLine(const std::string &csv_path) {
   std::ifstream file(csv_path);
   if (!file.is_open()) {
-    throw std::runtime_error("Failed to open optimal line CSV: " + csv_path);
+    throw std::runtime_error("Failed to open waypoint CSV: " + csv_path);
   }
 
   std::string line;
@@ -126,98 +117,30 @@ void LineManager::loadOptimalLine(const std::string &csv_path) {
         values.push_back(std::stod(token));
       }
     }
-    if (values.size() < 4) {
+    if (values.size() < 2) {
       continue;
     }
 
     Waypoint wp;
     wp.x = values[0];
     wp.y = values[1];
-    wp.yaw = values[2];
-    wp.speed = values[3] * speed_multiplier_;
+    wp.yaw = values.size() >= 3 ? values[2] : 0.0;
+    wp.speed = (values.size() >= 4 ? values[3] : default_speed_) * speed_multiplier_;
     points.push_back(wp);
   }
 
-  lines_["optimal"] = std::make_shared<RacingLine>(std::move(points), "optimal");
-}
-
-void LineManager::generateOffsetLines(double inside_offset, double outside_offset) {
-  auto optimal_it = lines_.find("optimal");
-  if (optimal_it == lines_.end()) {
-    throw std::runtime_error("Optimal line must be loaded before generating offsets");
+  if (points.empty()) {
+    throw std::runtime_error("Waypoint CSV contains no valid points: " + csv_path);
   }
 
-  const auto &optimal = optimal_it->second->points();
-  std::vector<Waypoint> inside_points;
-  std::vector<Waypoint> outside_points;
-  inside_points.reserve(optimal.size());
-  outside_points.reserve(optimal.size());
-
-  for (const auto &wp : optimal) {
-    const double normal_x = -std::sin(wp.yaw);
-    const double normal_y = std::cos(wp.yaw);
-
-    Waypoint inside_wp = wp;
-    inside_wp.x = wp.x + inside_offset * normal_x;
-    inside_wp.y = wp.y + inside_offset * normal_y;
-
-    Waypoint outside_wp = wp;
-    outside_wp.x = wp.x + outside_offset * normal_x;
-    outside_wp.y = wp.y + outside_offset * normal_y;
-
-    inside_points.push_back(inside_wp);
-    outside_points.push_back(outside_wp);
-  }
-
-  lines_["inside"] = std::make_shared<RacingLine>(std::move(inside_points), "inside");
-  lines_["outside"] = std::make_shared<RacingLine>(std::move(outside_points), "outside");
+  optimal_line_ = std::make_shared<RacingLine>(std::move(points));
 }
 
 std::shared_ptr<RacingLine> LineManager::getLine(const std::string &name) const {
-  auto it = lines_.find(name);
-  if (it == lines_.end()) {
-    return nullptr;
+  if (name == "optimal") {
+    return optimal_line_;
   }
-  return it->second;
-}
-
-std::shared_ptr<RacingLine> LineManager::getCurrentLine() const {
-  return getLine(current_line_name_);
-}
-
-void LineManager::setCurrentLine(const std::string &name) {
-  if (lines_.find(name) != lines_.end()) {
-    current_line_name_ = name;
-  }
-}
-
-std::vector<std::string> LineManager::getAllLineNames() const {
-  std::vector<std::string> names;
-  names.reserve(lines_.size());
-  for (const auto &item : lines_) {
-    names.push_back(item.first);
-  }
-  return names;
-}
-
-void LineManager::saveLines(const std::string &output_dir) const {
-  std::filesystem::create_directories(output_dir);
-
-  for (const auto &pair : lines_) {
-    const std::string &name = pair.first;
-    const auto &line = pair.second->points();
-
-    std::filesystem::path out_path = std::filesystem::path(output_dir) / (name + "_line.csv");
-    std::ofstream out(out_path);
-    if (!out.is_open()) {
-      continue;
-    }
-
-    out << "x,y,yaw,v\n";
-    for (const auto &wp : line) {
-      out << wp.x << "," << wp.y << "," << wp.yaw << "," << (wp.speed / speed_multiplier_) << "\n";
-    }
-  }
+  return nullptr;
 }
 
 }  // namespace scenario_director

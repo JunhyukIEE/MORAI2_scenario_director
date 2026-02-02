@@ -28,11 +28,7 @@ include_directories(include)
 
 add_library(scenario_core
   src/line_manager.cpp
-  src/overtake_strategy.cpp
   src/pure_pursuit.cpp
-  src/slow_in_out.cpp
-  src/track_boundary.cpp
-  src/waypoint_selector.cpp
 )
 
 ament_target_dependencies(scenario_core
@@ -40,14 +36,7 @@ ament_target_dependencies(scenario_core
   std_msgs
   nav_msgs
   geometry_msgs
-  sensor_msgs
-  cv_bridge
   ament_index_cpp
-)
-
-target_link_libraries(scenario_core
-  yaml-cpp
-  ${OpenCV_LIBS}
 )
 
 add_executable(scenario_director_node src/scenario_director_node.cpp)
@@ -56,12 +45,10 @@ ament_target_dependencies(scenario_director_node
   std_msgs
   nav_msgs
   geometry_msgs
-  sensor_msgs
-  cv_bridge
   ament_index_cpp
 )
 
-target_link_libraries(scenario_director_node scenario_core ${OpenCV_LIBS} yaml-cpp)
+target_link_libraries(scenario_director_node scenario_core)
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(scenario_director_node ${cpp_typesupport_target})
 
@@ -74,7 +61,7 @@ ament_target_dependencies(npc_controller_node
   ament_index_cpp
 )
 
-target_link_libraries(npc_controller_node scenario_core ${OpenCV_LIBS} yaml-cpp)
+target_link_libraries(npc_controller_node scenario_core)
 target_link_libraries(npc_controller_node ${cpp_typesupport_target})
 
 install(TARGETS

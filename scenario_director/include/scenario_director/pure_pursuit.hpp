@@ -28,6 +28,10 @@ public:
                                                           double ego_yaw, double ego_speed,
                                                           const RacingLine &line) const;
 
+  double computeSteeringForTarget(double ego_x, double ego_y, double ego_yaw,
+                                  double target_x, double target_y,
+                                  double lookahead) const;
+
 private:
   double calculateSteering(double ego_x, double ego_y, double ego_yaw,
                            double target_x, double target_y,

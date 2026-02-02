@@ -30,6 +30,12 @@ std::tuple<double, double, double> PurePursuitController::computeWithCurvature(
   return {steering, target_speed, curvature};
 }
 
+double PurePursuitController::computeSteeringForTarget(double ego_x, double ego_y, double ego_yaw,
+                                                       double target_x, double target_y,
+                                                       double lookahead) const {
+  return calculateSteering(ego_x, ego_y, ego_yaw, target_x, target_y, lookahead);
+}
+
 double PurePursuitController::calculateSteering(double ego_x, double ego_y, double ego_yaw,
                                                 double target_x, double target_y,
                                                 double lookahead) const {
