@@ -1,0 +1,13 @@
+overtake_planner:
+  ros__parameters:
+    map.map_dir: "map"
+    map.map_yaml: "Sangam_map.yaml"
+    map.waypoints: "waypoints.csv"
+    output.dir: "out"
+
+    safety_margin_m: 0.25
+    alat_max: 6.0
+    amax: 2.0
+    bmax: 3.0
+    num_candidates_per_corner: 7
+    curvature_threshold_percentile: 80.0

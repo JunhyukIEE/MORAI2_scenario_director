@@ -123,7 +123,9 @@ public:
 
     cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/opponent/ctrl_cmd", 10);
 
-    timer_ = create_wall_timer(std::chrono::milliseconds(50),
+    const double loop_hz = get_parameter("control.loop_hz").as_double();
+    const int period_ms = static_cast<int>(std::round(1000.0 / std::max(1.0, loop_hz)));
+    timer_ = create_wall_timer(std::chrono::milliseconds(period_ms),
                                std::bind(&NPCControllerNode::controlLoop, this));
 
     RCLCPP_INFO(get_logger(), "NPC Controller initialized (collision avoidance: %s)",

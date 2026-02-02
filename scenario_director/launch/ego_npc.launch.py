@@ -7,6 +7,7 @@ def generate_launch_description():
     share = get_package_share_directory('scenario_director')
     ego_params = [f"{share}/config/scenario_director.yaml"]
     npc_params = [f"{share}/config/npc_controller.yaml"]
+    overtake_params = [f"{share}/config/overtake_planner.yaml"]
 
     return LaunchDescription([
         Node(
@@ -21,6 +22,13 @@ def generate_launch_description():
             executable='npc_controller_node',
             name='npc_controller',
             parameters=npc_params,
+            output='screen'
+        ),
+        Node(
+            package='scenario_director',
+            executable='overtake_planner_node',
+            name='overtake_planner',
+            parameters=overtake_params,
             output='screen'
         )
     ])

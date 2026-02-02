@@ -6,6 +6,7 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     share = get_package_share_directory('scenario_director')
     params = [f"{share}/config/scenario_director.yaml"]
+    overtake_params = [f"{share}/config/overtake_planner.yaml"]
 
     return LaunchDescription([
         Node(
@@ -13,6 +14,13 @@ def generate_launch_description():
             executable='scenario_director_node',
             name='scenario_director',
             parameters=params,
+            output='screen'
+        ),
+        Node(
+            package='scenario_director',
+            executable='overtake_planner_node',
+            name='overtake_planner',
+            parameters=overtake_params,
             output='screen'
         )
     ])

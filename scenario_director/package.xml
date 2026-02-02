@@ -16,6 +16,8 @@
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>ament_index_cpp</depend>
+  <depend>yaml-cpp</depend>
+  <depend>opencv2</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
 

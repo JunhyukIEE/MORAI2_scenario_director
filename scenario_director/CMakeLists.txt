@@ -29,6 +29,8 @@ include_directories(include)
 add_library(scenario_core
   src/line_manager.cpp
   src/pure_pursuit.cpp
+  src/track_boundary.cpp
+  src/overtake_planner.cpp
 )
 
 ament_target_dependencies(scenario_core
@@ -37,6 +39,8 @@ ament_target_dependencies(scenario_core
   nav_msgs
   geometry_msgs
   ament_index_cpp
+  OpenCV
+  yaml-cpp
 )
 
 add_executable(scenario_director_node src/scenario_director_node.cpp)
@@ -49,6 +53,7 @@ ament_target_dependencies(scenario_director_node
 )
 
 target_link_libraries(scenario_director_node scenario_core)
+target_link_libraries(scenario_core yaml-cpp ${OpenCV_LIBRARIES})
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(scenario_director_node ${cpp_typesupport_target})
 
@@ -64,10 +69,18 @@ ament_target_dependencies(npc_controller_node
 target_link_libraries(npc_controller_node scenario_core)
 target_link_libraries(npc_controller_node ${cpp_typesupport_target})
 
+add_executable(overtake_planner_node src/overtake_planner_node.cpp)
+ament_target_dependencies(overtake_planner_node
+  rclcpp
+  ament_index_cpp
+)
+target_link_libraries(overtake_planner_node scenario_core)
+
 install(TARGETS
   scenario_core
   scenario_director_node
   npc_controller_node
+  overtake_planner_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

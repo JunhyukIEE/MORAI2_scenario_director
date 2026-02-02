@@ -2,7 +2,7 @@ scenario_director:
   ros__parameters:
     map.map_dir: "map"
     map.map_yaml: "Sangam_map.yaml"
-    map.waypoints: "waypoints.csv"
+    map.waypoints: "map/waypoints.csv"
 
     lines.optimal_path: ""  # empty = use map/waypoints
     lines.inside_offset: -1.5

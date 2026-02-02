@@ -35,6 +35,9 @@ public:
                        double desired_offset, double margin = 0.3) const;
 
   const MapConfig &config() const;
+  const cv::Mat &mapImage() const;
+  int mapWidth() const;
+  int mapHeight() const;
 
 private:
   MapConfig loadMapConfig(const std::string &map_yaml) const;

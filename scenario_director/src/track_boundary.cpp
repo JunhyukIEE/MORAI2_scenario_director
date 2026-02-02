@@ -48,6 +48,18 @@ const MapConfig &TrackBoundaryChecker::config() const {
   return config_;
 }
 
+const cv::Mat &TrackBoundaryChecker::mapImage() const {
+  return map_image_;
+}
+
+int TrackBoundaryChecker::mapWidth() const {
+  return map_width_;
+}
+
+int TrackBoundaryChecker::mapHeight() const {
+  return map_height_;
+}
+
 std::pair<int, int> TrackBoundaryChecker::worldToPixel(double world_x, double world_y) const {
   const double rel_x = world_x - config_.origin_x;
   const double rel_y = world_y - config_.origin_y;
