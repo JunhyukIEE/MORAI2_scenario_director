@@ -1,0 +1,44 @@
+local_path_planner:
+  ros__parameters:
+    # Map settings
+    map.map_dir: "map"
+    map.map_yaml: "Sangam_map.yaml"
+    map.waypoints: "waypoints.csv"
+
+    # Vehicle parameters
+    vehicle.wheelbase: 2.7
+    vehicle.max_steer: 0.489        # radians (~28 deg)
+    vehicle.max_accel: 3.5          # m/s^2
+    vehicle.max_decel: 7.0          # m/s^2
+    vehicle.max_lat_accel: 8.5      # m/s^2 (professional driver level)
+
+    # Reward weights
+    weights.w_progress: 8.0         # Track progress reward
+    weights.w_speed: 1.5            # Speed reward
+    weights.w_overtake: 60.0        # Overtake reward
+    weights.w_collision: 20000.0    # Collision penalty
+    weights.w_offroad: 4000.0       # Offroad penalty
+    weights.w_smooth: 8.0           # Smoothness penalty
+    weights.w_curv: 2.0             # Curvature penalty
+    weights.w_far_from_ref: 2.0     # Distance from reference line penalty
+
+    # Vehicle dimensions
+    ego_length: 4.0
+    ego_width: 1.7
+    opp_length: 4.0
+    opp_width: 1.7
+
+    # Planning settings
+    dt: 0.1                         # Time step (seconds)
+    horizon_s: 4.0                  # Planning horizon (seconds)
+    path_ahead_m: 70.0              # Path lookahead distance (meters)
+    planning_rate_hz: 10.0          # Planning frequency (Hz)
+
+    # Candidate generation
+    lateral_offsets: [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
+    speed_scales: [0.85, 1.0, 1.10, 1.20]
+
+    # Safety settings
+    offroad_check_stride: 2         # Check every N-th point for offroad
+    overtake_margin_s: 6.0          # Distance ahead to consider overtake complete
+    near_pass_bonus_dist: 3.0       # Distance for near-pass bonus

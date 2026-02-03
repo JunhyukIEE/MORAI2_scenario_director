@@ -30,7 +30,7 @@ add_library(scenario_core
   src/line_manager.cpp
   src/pure_pursuit.cpp
   src/track_boundary.cpp
-  src/overtake_planner.cpp
+  src/local_path_planner.cpp
 )
 
 ament_target_dependencies(scenario_core
@@ -69,18 +69,33 @@ ament_target_dependencies(npc_controller_node
 target_link_libraries(npc_controller_node scenario_core)
 target_link_libraries(npc_controller_node ${cpp_typesupport_target})
 
-add_executable(overtake_planner_node src/overtake_planner_node.cpp)
-ament_target_dependencies(overtake_planner_node
+add_executable(local_path_planner_node src/local_path_planner_node.cpp)
+ament_target_dependencies(local_path_planner_node
   rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
   ament_index_cpp
 )
-target_link_libraries(overtake_planner_node scenario_core)
+target_link_libraries(local_path_planner_node scenario_core)
+
+add_executable(racing_director_node src/racing_director_node.cpp)
+ament_target_dependencies(racing_director_node
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  ament_index_cpp
+)
+target_link_libraries(racing_director_node scenario_core)
+target_link_libraries(racing_director_node ${cpp_typesupport_target})
 
 install(TARGETS
   scenario_core
   scenario_director_node
   npc_controller_node
-  overtake_planner_node
+  local_path_planner_node
+  racing_director_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

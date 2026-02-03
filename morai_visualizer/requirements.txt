@@ -1,0 +1,1 @@
+sudo apt install ros-humble-nav2-map-server ros-humble-nav2-lifecycle-manager

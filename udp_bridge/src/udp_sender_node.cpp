@@ -80,9 +80,6 @@ private:
     sendto(socket_fd_, payload, sizeof(payload), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
 
-    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500,
-                         "[ego] throttle=%.3f brake=%.3f steer=%.4f rad -> %.1f deg",
-                         throttle, brake, msg->steering, steering_deg);
   }
 
   void npcCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg) {

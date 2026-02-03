@@ -1,10 +1,13 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
+
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include "scenario_director/line_manager.hpp"
 #include "scenario_director/pure_pursuit.hpp"
@@ -12,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 namespace scenario_director {
 
@@ -21,6 +25,16 @@ double quaternionToYaw(const geometry_msgs::msg::Quaternion &q) {
   const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
   const double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
   return std::atan2(siny_cosp, cosy_cosp);
+}
+
+geometry_msgs::msg::Quaternion yawToQuaternion(double yaw) {
+  geometry_msgs::msg::Quaternion q;
+  const double half = 0.5 * yaw;
+  q.x = 0.0;
+  q.y = 0.0;
+  q.z = std::sin(half);
+  q.w = std::cos(half);
+  return q;
 }
 
 std::string resolvePath(const std::string &path, const std::string &package_name) {
@@ -66,6 +80,9 @@ public:
     declare_parameter<double>("overtake.late_brake_fast_scale", 1.05);
     declare_parameter<double>("overtake.late_brake_slow_scale", 0.85);
     declare_parameter<bool>("overtake.outside_enabled", true);
+    declare_parameter<int>("overtake.local_path_points", 60);
+    declare_parameter<int>("overtake.local_path_stride", 1);
+    declare_parameter<std::string>("overtake.local_path_topic", "/local_path");
 
     const std::string waypoint_path = resolvePath(
         get_parameter("map.waypoints").as_string(), "scenario_director");
@@ -121,6 +138,12 @@ public:
 
     cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/ego/ctrl_cmd", 10);
     overtake_pub_ = create_publisher<std_msgs::msg::Bool>("/ego/overtake_flag", 10);
+    local_path_points_ = std::max(2, static_cast<int>(
+        get_parameter("overtake.local_path_points").as_int()));
+    local_path_stride_ = std::max(1, static_cast<int>(
+        get_parameter("overtake.local_path_stride").as_int()));
+    local_path_topic_ = get_parameter("overtake.local_path_topic").as_string();
+    local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, 1);
 
     const double loop_hz = get_parameter("control.loop_hz").as_double();
     const int period_ms = static_cast<int>(std::round(1000.0 / std::max(1.0, loop_hz)));
@@ -135,6 +158,9 @@ private:
     x_ = msg->pose.pose.position.x;
     y_ = msg->pose.pose.position.y;
     yaw_ = quaternionToYaw(msg->pose.pose.orientation);
+    if (!msg->header.frame_id.empty()) {
+      last_frame_id_ = msg->header.frame_id;
+    }
     has_pose_ = true;
   }
 
@@ -158,10 +184,14 @@ private:
     }
 
     const double lookahead = computeLookahead();
-    Waypoint target = line_->getLookaheadPoint(x_, y_, lookahead);
-
     const bool overtake_active = updateOvertakeState();
-    if (overtake_active) {
+    const auto local_path = buildLocalPath(overtake_active);
+    publishLocalPath(local_path);
+
+    Waypoint target = line_->getLookaheadPoint(x_, y_, lookahead);
+    if (overtake_active && local_path.size() >= 2) {
+      target = getLookaheadOnPath(x_, y_, lookahead, local_path);
+    } else if (overtake_active) {
       applyOvertakeOffset(target);
     }
 
@@ -286,6 +316,111 @@ private:
     target.y += left_y * offset * side_sign;
   }
 
+  void applyLateralOffset(Waypoint &wp, double heading, double side_sign, double offset) const {
+    const double left_x = -std::sin(heading);
+    const double left_y = std::cos(heading);
+    wp.x += left_x * offset * side_sign;
+    wp.y += left_y * offset * side_sign;
+  }
+
+  std::vector<Waypoint> buildLocalPath(bool overtake_active) const {
+    std::vector<Waypoint> result;
+    if (!line_) {
+      return result;
+    }
+
+    const int base_idx = line_->getNearestIndex(x_, y_);
+    const int stride = std::max(1, local_path_stride_);
+    const int count = std::max(2, local_path_points_);
+
+    double side_sign = pass_side_sign_;
+    double offset = overtake_side_offset_;
+    if (overtake_state_ == OvertakeState::DUMMY) {
+      side_sign = dummy_side_sign_;
+      offset = overtake_dummy_offset_;
+    }
+    if (!overtake_active) {
+      offset = 0.0;
+    }
+
+    for (int i = 0; i < count; ++i) {
+      const int idx = base_idx + i * stride;
+      Waypoint wp = line_->getWaypoint(idx);
+      const Waypoint next = line_->getWaypoint(idx + 1);
+      double heading = std::atan2(next.y - wp.y, next.x - wp.x);
+      if (std::abs(next.x - wp.x) < 1e-6 && std::abs(next.y - wp.y) < 1e-6) {
+        heading = wp.yaw;
+      }
+
+      if (offset != 0.0) {
+        applyLateralOffset(wp, heading, side_sign, offset);
+      }
+
+      wp.yaw = heading;
+      result.push_back(wp);
+    }
+
+    return result;
+  }
+
+  void publishLocalPath(const std::vector<Waypoint> &local_path) {
+    nav_msgs::msg::Path path;
+    path.header.stamp = now();
+    path.header.frame_id = last_frame_id_.empty() ? "map" : last_frame_id_;
+
+    for (const auto &wp : local_path) {
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header = path.header;
+      pose.pose.position.x = wp.x;
+      pose.pose.position.y = wp.y;
+      pose.pose.position.z = 0.0;
+      pose.pose.orientation = yawToQuaternion(wp.yaw);
+      path.poses.push_back(pose);
+    }
+
+    local_path_pub_->publish(path);
+  }
+
+  Waypoint getLookaheadOnPath(double x, double y, double lookahead,
+                              const std::vector<Waypoint> &path) const {
+    if (path.empty()) {
+      return {};
+    }
+    if (path.size() == 1) {
+      return path.front();
+    }
+
+    std::vector<double> cumulative;
+    cumulative.reserve(path.size());
+    cumulative.push_back(0.0);
+
+    for (size_t i = 1; i < path.size(); ++i) {
+      const double dx = path[i].x - path[i - 1].x;
+      const double dy = path[i].y - path[i - 1].y;
+      cumulative.push_back(cumulative.back() + std::sqrt(dx * dx + dy * dy));
+    }
+
+    int nearest_idx = 0;
+    double best_dist = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < path.size(); ++i) {
+      const double dx = path[i].x - x;
+      const double dy = path[i].y - y;
+      const double dist = dx * dx + dy * dy;
+      if (dist < best_dist) {
+        best_dist = dist;
+        nearest_idx = static_cast<int>(i);
+      }
+    }
+
+    const double target_dist = cumulative[static_cast<size_t>(nearest_idx)] + lookahead;
+    auto it = std::lower_bound(cumulative.begin(), cumulative.end(), target_dist);
+    size_t target_idx = static_cast<size_t>(std::distance(cumulative.begin(), it));
+    if (target_idx >= path.size()) {
+      target_idx = path.size() - 1;
+    }
+    return path[target_idx];
+  }
+
   double adjustOvertakeSpeed(double target_speed) const {
     const double dx = opp_x_ - x_;
     const double dy = opp_y_ - y_;
@@ -313,6 +448,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr opp_vel_sub_;
   rclcpp::Publisher<scenario_director::msg::VehicleCmd>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr overtake_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   double throttle_kp_ = 0.1;
@@ -342,6 +478,10 @@ private:
   double opp_y_ = 0.0;
   double opp_speed_ = 0.0;
   bool has_opp_pose_ = false;
+  std::string last_frame_id_ = "map";
+  int local_path_points_ = 60;
+  int local_path_stride_ = 1;
+  std::string local_path_topic_ = "/local_path";
 
   enum class OvertakeState { NONE, DUMMY, PASS };
   OvertakeState overtake_state_ = OvertakeState::NONE;
