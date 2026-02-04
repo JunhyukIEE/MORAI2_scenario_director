@@ -5,7 +5,10 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     share = get_package_share_directory('scenario_director')
-    params = [f"{share}/config/scenario_director.yaml"]
+    params = [
+        f"{share}/config/scenario_director.yaml",
+        f"{share}/config/pure_pursuit.yaml"
+    ]
 
     return LaunchDescription([
         Node(

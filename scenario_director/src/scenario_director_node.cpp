@@ -53,6 +53,7 @@ public:
     declare_parameter<double>("waypoints.default_speed", 5.0);
     declare_parameter<double>("vehicle.wheelbase", 2.7);
     declare_parameter<double>("vehicle.max_steering", 0.55);
+    declare_parameter<double>("vehicle.speed_multiplier", 1.0);
     declare_parameter<double>("control.throttle_kp", 0.1);
     declare_parameter<double>("control.brake_kp", 0.1);
     declare_parameter<double>("control.max_throttle", 1.0);
@@ -62,7 +63,6 @@ public:
     declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.3);
-    declare_parameter<double>("pure_pursuit.steering_scale", 1.0);
     declare_parameter<double>("overtake.trigger_distance", 20.0);
     declare_parameter<double>("overtake.complete_distance", 8.0);
     declare_parameter<std::string>("local_path.topic", "/local_planner/path");
@@ -79,12 +79,14 @@ public:
     cfg.min_lookahead = get_parameter("pure_pursuit.min_lookahead").as_double();
     cfg.max_lookahead = get_parameter("pure_pursuit.max_lookahead").as_double();
     cfg.lookahead_ratio = get_parameter("pure_pursuit.lookahead_ratio").as_double();
-    cfg.steering_scale = get_parameter("pure_pursuit.steering_scale").as_double();
 
     controller_ = std::make_shared<PurePursuitController>(cfg);
 
+    const double speed_multiplier = get_parameter("vehicle.speed_multiplier").as_double();
+
     line_manager_ = std::make_shared<LineManager>();
     line_manager_->setDefaultSpeed(default_speed);
+    line_manager_->setSpeedMultiplier(speed_multiplier);
     try {
       line_manager_->loadOptimalLine(waypoint_path);
       line_ = line_manager_->getLine("optimal");
@@ -205,7 +207,6 @@ private:
 
     double steering = controller_->computeSteeringForTarget(
         x_, y_, yaw_, target.x, target.y, lookahead);
-    steering *= pp_config_.steering_scale;
 
     const double speed_error = target_speed - speed_;
     double throttle = 0.0;

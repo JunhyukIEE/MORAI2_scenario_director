@@ -5,12 +5,7 @@ scenario_director:
 
     vehicle.wheelbase: 2.35
     vehicle.max_steering: 0.436
-
-    pure_pursuit.lookahead_distance: 28.0
-    pure_pursuit.min_lookahead: 4.0
-    pure_pursuit.max_lookahead: 15.0
-    pure_pursuit.lookahead_ratio: 0.3
-    pure_pursuit.steering_scale: 0.74689187
+    vehicle.speed_multiplier: 1.3
 
     overtake.trigger_distance: 20.0
     overtake.complete_distance: 15.0
