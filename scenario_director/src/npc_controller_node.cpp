@@ -41,6 +41,11 @@ class NPCControllerNode : public rclcpp::Node {
 public:
   NPCControllerNode()
   : rclcpp::Node("npc_controller") {
+    // NPC identifier (1-9)
+    declare_parameter<int>("npc.id", 1);
+    npc_id_ = get_parameter("npc.id").as_int();
+    npc_name_ = "NPC_" + std::to_string(npc_id_);
+
     declare_parameter<std::string>("line.optimal_path", "map/waypoints.csv");
     declare_parameter<double>("npc.speed_ratio", 0.5);
     declare_parameter<double>("npc.min_speed_ratio", 0.2);
@@ -88,7 +93,7 @@ public:
       line_manager_->loadOptimalLine(line_path);
       line_ = line_manager_->getLine("optimal");
     } catch (const std::exception &e) {
-      RCLCPP_ERROR(get_logger(), "Failed to load line: %s", e.what());
+      RCLCPP_ERROR(get_logger(), "[%s] Failed to load line: %s", npc_name_.c_str(), e.what());
     }
 
     controller_ = std::make_shared<PurePursuitController>(cfg);
@@ -108,11 +113,12 @@ public:
     min_speed_ratio_ = get_parameter("collision_avoidance.min_speed_ratio").as_double();
     brake_intensity_ = get_parameter("collision_avoidance.brake_intensity").as_double();
 
-    // NPC odom subscription
+    // NPC odom subscription (using /NPC_X/ topic namespace)
+    std::string npc_prefix = "/" + npc_name_;
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/opponent/odom", 10, std::bind(&NPCControllerNode::odomCallback, this, std::placeholders::_1));
+      npc_prefix + "/odom", 10, std::bind(&NPCControllerNode::odomCallback, this, std::placeholders::_1));
     vel_sub_ = create_subscription<std_msgs::msg::Float64>(
-      "/opponent/vehicle/velocity", 10, std::bind(&NPCControllerNode::velocityCallback, this, std::placeholders::_1));
+      npc_prefix + "/vehicle/velocity", 10, std::bind(&NPCControllerNode::velocityCallback, this, std::placeholders::_1));
 
     // Ego vehicle subscription for collision avoidance
     ego_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -120,15 +126,15 @@ public:
     ego_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
       "/ego/vehicle/velocity", 10, std::bind(&NPCControllerNode::egoVelocityCallback, this, std::placeholders::_1));
 
-    cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/opponent/ctrl_cmd", 10);
+    cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>(npc_prefix + "/ctrl_cmd", 10);
 
     const double loop_hz = get_parameter("control.loop_hz").as_double();
     const int period_ms = static_cast<int>(std::round(1000.0 / std::max(1.0, loop_hz)));
     timer_ = create_wall_timer(std::chrono::milliseconds(period_ms),
                                std::bind(&NPCControllerNode::controlLoop, this));
 
-    RCLCPP_INFO(get_logger(), "NPC Controller initialized (collision avoidance: %s)",
-                collision_avoidance_enabled_ ? "enabled" : "disabled");
+    RCLCPP_INFO(get_logger(), "[%s] Controller initialized (speed_ratio: %.2f, collision avoidance: %s)",
+                npc_name_.c_str(), speed_ratio_, collision_avoidance_enabled_ ? "enabled" : "disabled");
   }
 
 private:
@@ -245,8 +251,8 @@ private:
       throttle = 0.0;
 
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
-                           "DANGER! Ego dist: %.1fm, TTC: %.1fs, braking!",
-                           risk.distance, risk.ttc);
+                           "[%s] DANGER! Ego dist: %.1fm, TTC: %.1fs, braking!",
+                           npc_name_.c_str(), risk.distance, risk.ttc);
 
     } else if (risk.is_caution) {
       // Caution: gradual speed reduction
@@ -260,8 +266,8 @@ private:
       }
 
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-                           "Caution: Ego dist: %.1fm, speed modifier: %.2f",
-                           risk.distance, risk.speed_modifier);
+                           "[%s] Caution: Ego dist: %.1fm, speed modifier: %.2f",
+                           npc_name_.c_str(), risk.distance, risk.speed_modifier);
 
     } else {
       // Normal driving
@@ -282,6 +288,9 @@ private:
     cmd.steering = steering;
     cmd_pub_->publish(cmd);
   }
+
+  int npc_id_ = 1;
+  std::string npc_name_ = "NPC_1";
 
   std::shared_ptr<LineManager> line_manager_;
   std::shared_ptr<RacingLine> line_;

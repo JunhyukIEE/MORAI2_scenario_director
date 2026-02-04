@@ -11,10 +11,22 @@
 
 #include "scenario_director/local_path_planner.hpp"
 
+#include <array>
 #include <filesystem>
 #include <mutex>
 
 namespace scenario_director {
+
+namespace {
+constexpr int NUM_NPCS = 9;
+
+struct NPCState {
+  double x = 0.0;
+  double y = 0.0;
+  double v = 0.0;
+  bool received = false;
+};
+}  // namespace
 
 class LocalPathPlannerNode : public rclcpp::Node {
 public:
@@ -219,9 +231,15 @@ public:
         "/ego/odom", 10,
         std::bind(&LocalPathPlannerNode::egoOdomCallback, this, std::placeholders::_1));
 
-    opp_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/opponent/odom", 10,
-        std::bind(&LocalPathPlannerNode::oppOdomCallback, this, std::placeholders::_1));
+    // NPC subscriptions (9 NPCs)
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      std::string prefix = "/NPC_" + std::to_string(i + 1);
+      npc_odom_subs_[i] = create_subscription<nav_msgs::msg::Odometry>(
+        prefix + "/odom", 10,
+        [this, i](const nav_msgs::msg::Odometry::SharedPtr msg) {
+          npcOdomCallback(msg, i);
+        });
+    }
 
     overtake_flag_sub_ = create_subscription<std_msgs::msg::Bool>(
         "/ego/overtake_flag", 10,
@@ -230,6 +248,10 @@ public:
     overtake_phase_sub_ = create_subscription<std_msgs::msg::Int32>(
         "/ego/overtake_phase", 10,
         std::bind(&LocalPathPlannerNode::overtakePhaseCallback, this, std::placeholders::_1));
+
+    target_npc_sub_ = create_subscription<std_msgs::msg::Int32>(
+        "/ego/target_npc_id", 10,
+        std::bind(&LocalPathPlannerNode::targetNpcCallback, this, std::placeholders::_1));
 
     // Publishers
     planned_path_pub_ = create_publisher<nav_msgs::msg::Path>("/local_planner/path", 10);
@@ -267,12 +289,17 @@ private:
     ego_received_ = true;
   }
 
-  void oppOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+  void npcOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg, int npc_index) {
     std::lock_guard<std::mutex> lock(data_mutex_);
-    opp_x_ = msg->pose.pose.position.x;
-    opp_y_ = msg->pose.pose.position.y;
-    opp_v_ = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
-    opp_received_ = true;
+    npc_states_[npc_index].x = msg->pose.pose.position.x;
+    npc_states_[npc_index].y = msg->pose.pose.position.y;
+    npc_states_[npc_index].v = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
+    npc_states_[npc_index].received = true;
+  }
+
+  void targetNpcCallback(const std_msgs::msg::Int32::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    target_npc_id_ = msg->data - 1;  // Convert from 1-based to 0-based
   }
 
   void overtakeFlagCallback(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -291,19 +318,52 @@ private:
     bool overtake_flag;
     int overtake_phase;
     bool can_plan = false;
+    int used_npc_id = -1;
 
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
-      if (ego_received_ && opp_received_) {
-        ego_x = ego_x_;
-        ego_y = ego_y_;
-        ego_yaw = ego_yaw_;
-        ego_v = ego_v_;
-        opp_x = opp_x_;
-        opp_y = opp_y_;
-        opp_v = opp_v_;
-        overtake_flag = overtake_flag_;
-        overtake_phase = overtake_phase_;
+      if (!ego_received_) {
+        return;
+      }
+
+      ego_x = ego_x_;
+      ego_y = ego_y_;
+      ego_yaw = ego_yaw_;
+      ego_v = ego_v_;
+      overtake_flag = overtake_flag_;
+      overtake_phase = overtake_phase_;
+
+      // Use target NPC if available, otherwise find nearest NPC ahead
+      int npc_to_use = target_npc_id_;
+      if (npc_to_use < 0 || npc_to_use >= NUM_NPCS || !npc_states_[npc_to_use].received) {
+        // Find nearest NPC ahead
+        double nearest_dist = std::numeric_limits<double>::max();
+        const double heading_x = std::cos(ego_yaw_);
+        const double heading_y = std::sin(ego_yaw_);
+
+        for (int i = 0; i < NUM_NPCS; ++i) {
+          if (!npc_states_[i].received) continue;
+          const double dx = npc_states_[i].x - ego_x_;
+          const double dy = npc_states_[i].y - ego_y_;
+          const double forward_dist = dx * heading_x + dy * heading_y;
+          if (forward_dist > 0.0 && forward_dist < nearest_dist) {
+            nearest_dist = forward_dist;
+            npc_to_use = i;
+          }
+        }
+      }
+
+      if (npc_to_use >= 0 && npc_to_use < NUM_NPCS && npc_states_[npc_to_use].received) {
+        opp_x = npc_states_[npc_to_use].x;
+        opp_y = npc_states_[npc_to_use].y;
+        opp_v = npc_states_[npc_to_use].v;
+        used_npc_id = npc_to_use;
+        can_plan = true;
+      } else {
+        // No NPC available, use dummy position far away
+        opp_x = ego_x_ + 1000.0;
+        opp_y = ego_y_;
+        opp_v = 0.0;
         can_plan = true;
       }
     }
@@ -416,9 +476,10 @@ private:
 
   // Subscribers
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
+  std::array<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr, NUM_NPCS> npc_odom_subs_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr overtake_flag_sub_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr overtake_phase_sub_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_npc_sub_;
 
   // Publishers
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr planned_path_pub_;
@@ -434,9 +495,9 @@ private:
   // Data mutex and state
   std::mutex data_mutex_;
   double ego_x_ = 0.0, ego_y_ = 0.0, ego_yaw_ = 0.0, ego_v_ = 0.0;
-  double opp_x_ = 0.0, opp_y_ = 0.0, opp_v_ = 0.0;
+  std::array<NPCState, NUM_NPCS> npc_states_;
+  int target_npc_id_ = -1;  // 0-based index, -1 if none
   bool ego_received_ = false;
-  bool opp_received_ = false;
   bool overtake_flag_ = false;
   int overtake_phase_ = 0;  // 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
 };

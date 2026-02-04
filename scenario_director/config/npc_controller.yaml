@@ -2,6 +2,9 @@ npc_controller:
   ros__parameters:
     line.optimal_path: "map/waypoints.csv"
 
+    # NPC ID (1-9, launch file에서 오버라이드)
+    npc.id: 1
+
     # NPC 속도 설정
     npc.speed_ratio: 0.5            # 기본 속도 배율 (waypoint 속도 대비)
     npc.min_speed_ratio: 0.2        # 최소 속도 배율

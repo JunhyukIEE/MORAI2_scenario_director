@@ -15,6 +15,7 @@
 #include "scenario_director/pure_pursuit.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -25,6 +26,8 @@
 namespace scenario_director {
 
 namespace {
+
+constexpr int NUM_NPCS = 9;
 
 double quaternionToYaw(const geometry_msgs::msg::Quaternion &q) {
   const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
@@ -45,6 +48,14 @@ std::string resolvePath(const std::string &path, const std::string &package_name
 }
 
 }  // namespace
+
+// NPC state structure
+struct NPCState {
+  double x = 0.0;
+  double y = 0.0;
+  double speed = 0.0;
+  bool has_pose = false;
+};
 
 class ScenarioDirectorNode : public rclcpp::Node {
 public:
@@ -112,15 +123,26 @@ public:
     speed_advantage_threshold_ = get_parameter("overtake.speed_advantage_threshold").as_double();
     pp_config_ = cfg;
 
+    // Ego vehicle subscriptions
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/ego/odom", 10, std::bind(&ScenarioDirectorNode::odomCallback, this, std::placeholders::_1));
     vel_sub_ = create_subscription<std_msgs::msg::Float64>(
       "/ego/vehicle/velocity", 10, std::bind(&ScenarioDirectorNode::velocityCallback, this, std::placeholders::_1));
 
-    opp_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/opponent/odom", 10, std::bind(&ScenarioDirectorNode::oppOdomCallback, this, std::placeholders::_1));
-    opp_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
-      "/opponent/vehicle/velocity", 10, std::bind(&ScenarioDirectorNode::oppVelocityCallback, this, std::placeholders::_1));
+    // NPC subscriptions (9 NPCs)
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      std::string prefix = "/NPC_" + std::to_string(i + 1);
+      npc_odom_subs_[i] = create_subscription<nav_msgs::msg::Odometry>(
+        prefix + "/odom", 10,
+        [this, i](const nav_msgs::msg::Odometry::SharedPtr msg) {
+          npcOdomCallback(msg, i);
+        });
+      npc_vel_subs_[i] = create_subscription<std_msgs::msg::Float64>(
+        prefix + "/vehicle/velocity", 10,
+        [this, i](const std_msgs::msg::Float64::SharedPtr msg) {
+          npcVelocityCallback(msg, i);
+        });
+    }
 
     const std::string local_path_topic = get_parameter("local_path.topic").as_string();
     const std::string local_speed_topic = get_parameter("local_speed.topic").as_string();
@@ -132,14 +154,14 @@ public:
     cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/ego/ctrl_cmd", 10);
     overtake_pub_ = create_publisher<std_msgs::msg::Bool>("/ego/overtake_flag", 10);
     overtake_phase_pub_ = create_publisher<std_msgs::msg::Int32>("/ego/overtake_phase", 10);
+    target_npc_pub_ = create_publisher<std_msgs::msg::Int32>("/ego/target_npc_id", 10);
 
     const double loop_hz = get_parameter("control.loop_hz").as_double();
     const int period_ms = static_cast<int>(std::round(1000.0 / std::max(1.0, loop_hz)));
     timer_ = create_wall_timer(std::chrono::milliseconds(period_ms),
                                std::bind(&ScenarioDirectorNode::controlLoop, this));
 
-    RCLCPP_INFO(get_logger(), "Scenario Director initialized (path: %s, speeds: %s)",
-                local_path_topic.c_str(), local_speed_topic.c_str());
+    RCLCPP_INFO(get_logger(), "Scenario Director initialized with %d NPCs support", NUM_NPCS);
   }
 
 private:
@@ -157,14 +179,14 @@ private:
     speed_ = msg->data;
   }
 
-  void oppOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    opp_x_ = msg->pose.pose.position.x;
-    opp_y_ = msg->pose.pose.position.y;
-    has_opp_pose_ = true;
+  void npcOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg, int npc_index) {
+    npc_states_[npc_index].x = msg->pose.pose.position.x;
+    npc_states_[npc_index].y = msg->pose.pose.position.y;
+    npc_states_[npc_index].has_pose = true;
   }
 
-  void oppVelocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
-    opp_speed_ = msg->data;
+  void npcVelocityCallback(const std_msgs::msg::Float64::SharedPtr msg, int npc_index) {
+    npc_states_[npc_index].speed = msg->data;
   }
 
   void localPathCallback(const nav_msgs::msg::Path::SharedPtr msg) {
@@ -175,7 +197,7 @@ private:
       wp.x = pose.pose.position.x;
       wp.y = pose.pose.position.y;
       wp.yaw = quaternionToYaw(pose.pose.orientation);
-      wp.speed = 0.0;  // Speed will be determined by waypoints
+      wp.speed = 0.0;
       local_path_.push_back(wp);
     }
     has_local_path_ = !local_path_.empty();
@@ -185,6 +207,33 @@ private:
     std::lock_guard<std::mutex> lock(local_path_mutex_);
     local_path_speeds_ = msg->data;
     has_local_speeds_ = !local_path_speeds_.empty();
+  }
+
+  // Find nearest NPC ahead of ego vehicle
+  int findNearestNPCAhead() {
+    int nearest_idx = -1;
+    double nearest_forward_dist = std::numeric_limits<double>::max();
+
+    const double heading_x = std::cos(yaw_);
+    const double heading_y = std::sin(yaw_);
+
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      if (!npc_states_[i].has_pose) {
+        continue;
+      }
+
+      const double dx = npc_states_[i].x - x_;
+      const double dy = npc_states_[i].y - y_;
+      const double forward_dist = dx * heading_x + dy * heading_y;
+
+      // Only consider NPCs ahead
+      if (forward_dist > 0.0 && forward_dist < nearest_forward_dist) {
+        nearest_forward_dist = forward_dist;
+        nearest_idx = i;
+      }
+    }
+
+    return nearest_idx;
   }
 
   void controlLoop() {
@@ -204,7 +253,6 @@ private:
       if (local_path_.size() >= 2) {
         size_t target_idx = getLookaheadIndexOnPath(x_, y_, lookahead, local_path_);
         Waypoint local_target = local_path_[target_idx];
-        // Use position from local path, but get speed from waypoints
         target.x = local_target.x;
         target.y = local_target.y;
 
@@ -243,6 +291,10 @@ private:
     std_msgs::msg::Int32 phase_msg;
     phase_msg.data = static_cast<int>(overtake_phase_);
     overtake_phase_pub_->publish(phase_msg);
+
+    std_msgs::msg::Int32 target_npc_msg;
+    target_npc_msg.data = target_npc_id_ + 1;  // 1-based index (0 if none)
+    target_npc_pub_->publish(target_npc_msg);
   }
 
   double computeLookahead() const {
@@ -252,106 +304,100 @@ private:
   }
 
   bool updateOvertakeState() {
-    if (!has_opp_pose_) {
-      overtake_state_ = OvertakeState::NONE;
-      overtake_phase_ = OvertakePhase::NONE;
-      chosen_side_ = 0;
+    // Find nearest NPC ahead
+    int nearest_npc = findNearestNPCAhead();
+
+    if (nearest_npc < 0) {
+      // No NPC ahead
+      if (overtake_state_ == OvertakeState::ACTIVE) {
+        overtake_phase_ = OvertakePhase::NONE;
+        overtake_state_ = OvertakeState::NONE;
+        chosen_side_ = 0;
+        target_npc_id_ = -1;
+        RCLCPP_INFO(get_logger(), "Overtake ended: no NPC ahead");
+      }
       return false;
     }
 
-    const double dx = opp_x_ - x_;
-    const double dy = opp_y_ - y_;
+    // Get NPC state
+    const NPCState& npc = npc_states_[nearest_npc];
+    const double dx = npc.x - x_;
+    const double dy = npc.y - y_;
     const double dist = std::sqrt(dx * dx + dy * dy);
     const double heading_x = std::cos(yaw_);
     const double heading_y = std::sin(yaw_);
-    const double forward_dist = dx * heading_x + dy * heading_y;  // 전방 거리 (음수면 뒤에 있음)
-    const double lateral_dist = -dx * heading_y + dy * heading_x;  // 측면 거리 (양수면 오른쪽)
+    const double forward_dist = dx * heading_x + dy * heading_y;
+    const double lateral_dist = -dx * heading_y + dy * heading_x;
     const bool is_ahead = forward_dist > 0.0;
     const bool is_beside = std::abs(forward_dist) < 5.0 && std::abs(lateral_dist) < 4.0;
-    const double speed_diff = speed_ - opp_speed_;  // 속도 차이 (양수면 내가 빠름)
+    const double speed_diff = speed_ - npc.speed;
     const bool has_speed_advantage = speed_diff > speed_advantage_threshold_;
 
-    // 상태 머신
+    // State machine
     switch (overtake_phase_) {
       case OvertakePhase::NONE:
-        // 조건: 상대가 앞에 있고 트리거 거리 이내
         if (is_ahead && dist <= overtake_trigger_distance_) {
           overtake_phase_ = OvertakePhase::APPROACH;
           overtake_state_ = OvertakeState::ACTIVE;
           overtake_start_time_ = now();
-          RCLCPP_INFO(get_logger(), "Overtake APPROACH: dist=%.1f m, speed_diff=%.1f m/s",
-                      dist, speed_diff);
+          target_npc_id_ = nearest_npc;
+          RCLCPP_INFO(get_logger(), "Overtake APPROACH NPC_%d: dist=%.1f m, speed_diff=%.1f m/s",
+                      nearest_npc + 1, dist, speed_diff);
         }
         break;
 
       case OvertakePhase::APPROACH:
-        // 접근 단계: 상대 뒤에서 위치 선점 준비
         if (!is_ahead || dist > overtake_trigger_distance_ * 1.2) {
-          // 상대가 멀어지면 취소
           overtake_phase_ = OvertakePhase::NONE;
           overtake_state_ = OvertakeState::NONE;
           chosen_side_ = 0;
-          RCLCPP_INFO(get_logger(), "Overtake cancelled: opponent moved away");
+          target_npc_id_ = -1;
+          RCLCPP_INFO(get_logger(), "Overtake cancelled: NPC moved away");
         } else if (dist <= overtake_position_distance_) {
-          // 위치 선점 단계로 전환
           overtake_phase_ = OvertakePhase::POSITION;
-          // 사이드 결정: 현재 lateral 위치 기반 또는 속도 우위 시 안쪽 선택
           if (chosen_side_ == 0) {
-            if (has_speed_advantage) {
-              // 속도 우위가 있으면 현재 위치에서 바깥쪽으로 추월
-              chosen_side_ = (lateral_dist > 0.0) ? 1 : -1;
-            } else {
-              // 속도 우위가 없으면 상대 옆으로 붙어서 기회를 노림
-              chosen_side_ = (lateral_dist > 0.0) ? 1 : -1;
-            }
+            chosen_side_ = (lateral_dist > 0.0) ? 1 : -1;
           }
-          RCLCPP_INFO(get_logger(), "Overtake POSITION: side=%s, dist=%.1f m",
-                      chosen_side_ > 0 ? "RIGHT" : "LEFT", dist);
+          RCLCPP_INFO(get_logger(), "Overtake POSITION NPC_%d: side=%s, dist=%.1f m",
+                      target_npc_id_ + 1, chosen_side_ > 0 ? "RIGHT" : "LEFT", dist);
         }
         break;
 
       case OvertakePhase::POSITION:
-        // 위치 선점 단계: 옆으로 위치 잡기
         if (!is_ahead && !is_beside) {
-          // 상대를 완전히 추월함
           overtake_phase_ = OvertakePhase::COMPLETE;
-          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: passed opponent");
+          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: passed NPC_%d", target_npc_id_ + 1);
         } else if (dist > overtake_trigger_distance_ * 1.2) {
-          // 상대가 멀어지면 취소
           overtake_phase_ = OvertakePhase::NONE;
           overtake_state_ = OvertakeState::NONE;
           chosen_side_ = 0;
+          target_npc_id_ = -1;
           RCLCPP_INFO(get_logger(), "Overtake cancelled during positioning");
         } else if (is_beside || dist <= overtake_execute_distance_) {
-          // 실행 단계로 전환
           overtake_phase_ = OvertakePhase::EXECUTE;
-          RCLCPP_INFO(get_logger(), "Overtake EXECUTE: alongside opponent, lat=%.1f m",
-                      lateral_dist);
+          RCLCPP_INFO(get_logger(), "Overtake EXECUTE NPC_%d: lat=%.1f m",
+                      target_npc_id_ + 1, lateral_dist);
         }
         break;
 
       case OvertakePhase::EXECUTE:
-        // 실행 단계: 나란히 달리면서 추월 중
         if (!is_ahead && dist > overtake_execute_distance_) {
-          // 상대를 추월함
           overtake_phase_ = OvertakePhase::COMPLETE;
-          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: overtake successful");
+          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: overtake successful NPC_%d", target_npc_id_ + 1);
         } else if (is_ahead && dist > overtake_position_distance_ * 1.5) {
-          // 추월 실패, 다시 접근
           overtake_phase_ = OvertakePhase::APPROACH;
           RCLCPP_INFO(get_logger(), "Overtake failed, returning to APPROACH");
         }
         break;
 
       case OvertakePhase::COMPLETE:
-        // 완료 단계: 안전 거리 확보 후 종료
         if (!is_ahead && dist > overtake_complete_distance_) {
           overtake_phase_ = OvertakePhase::NONE;
           overtake_state_ = OvertakeState::NONE;
           chosen_side_ = 0;
+          target_npc_id_ = -1;
           RCLCPP_INFO(get_logger(), "Overtake finished: safe distance secured");
         } else if (is_ahead) {
-          // 상대가 다시 앞으로 나감 (재추월 당함)
           overtake_phase_ = OvertakePhase::APPROACH;
           RCLCPP_INFO(get_logger(), "Re-overtaken, back to APPROACH");
         }
@@ -363,12 +409,8 @@ private:
 
   size_t getLookaheadIndexOnPath(double x, double y, double lookahead,
                                  const std::vector<Waypoint> &path) const {
-    if (path.empty()) {
-      return 0;
-    }
-    if (path.size() == 1) {
-      return 0;
-    }
+    if (path.empty()) return 0;
+    if (path.size() == 1) return 0;
 
     std::vector<double> cumulative;
     cumulative.reserve(path.size());
@@ -405,17 +447,26 @@ private:
   std::shared_ptr<RacingLine> line_;
   std::shared_ptr<PurePursuitController> controller_;
 
+  // Ego subscriptions
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr vel_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr opp_vel_sub_;
+
+  // NPC subscriptions
+  std::array<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr, NUM_NPCS> npc_odom_subs_;
+  std::array<rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_vel_subs_;
+
+  // Local path subscriptions
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr local_path_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr local_speed_sub_;
+
+  // Publishers
   rclcpp::Publisher<scenario_director::msg::VehicleCmd>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr overtake_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr overtake_phase_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr target_npc_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
+  // Control parameters
   double throttle_kp_ = 0.1;
   double brake_kp_ = 0.1;
   double max_throttle_ = 1.0;
@@ -429,30 +480,32 @@ private:
   double speed_advantage_threshold_ = 2.0;
   PurePursuitConfig pp_config_;
 
+  // Ego state
   double x_ = 0.0;
   double y_ = 0.0;
   double yaw_ = 0.0;
   double speed_ = 0.0;
   bool has_pose_ = false;
-  double opp_x_ = 0.0;
-  double opp_y_ = 0.0;
-  double opp_speed_ = 0.0;
-  bool has_opp_pose_ = false;
   std::string last_frame_id_ = "map";
 
+  // NPC states
+  std::array<NPCState, NUM_NPCS> npc_states_;
+  int target_npc_id_ = -1;  // Currently targeted NPC for overtake (-1 if none)
+
+  // Local path
   std::mutex local_path_mutex_;
   std::vector<Waypoint> local_path_;
   std::vector<double> local_path_speeds_;
   bool has_local_path_ = false;
   bool has_local_speeds_ = false;
 
-  // Overtake phase: 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
+  // Overtake state
   enum class OvertakePhase { NONE = 0, APPROACH = 1, POSITION = 2, EXECUTE = 3, COMPLETE = 4 };
   enum class OvertakeState { NONE, ACTIVE };
   OvertakeState overtake_state_ = OvertakeState::NONE;
   OvertakePhase overtake_phase_ = OvertakePhase::NONE;
   rclcpp::Time overtake_start_time_;
-  int chosen_side_ = 0;  // -1: left, 0: undecided, +1: right
+  int chosen_side_ = 0;
 };
 
 }  // namespace scenario_director

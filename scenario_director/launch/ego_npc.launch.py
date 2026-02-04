@@ -12,22 +12,16 @@ def generate_launch_description():
         f"{share}/config/scenario_director.yaml",
         f"{share}/config/pure_pursuit.yaml"
     ]
-    npc_params = [
-        f"{share}/config/npc_controller.yaml",
-        f"{share}/config/pure_pursuit.yaml"
-    ]
     local_planner_params = [f"{share}/config/local_path_planner.yaml"]
 
     return LaunchDescription([
+        # Visualizer (updated for new topic format)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 f"{visualizer_share}/launch/visualizer.launch.py"
             ),
-            launch_arguments={
-                'odom_topic': '/ego/odom',
-                'opponent_odom_topic': '/opponent/odom',
-            }.items(),
         ),
+        # Local path planner
         Node(
             package='scenario_director',
             executable='local_path_planner_node',
@@ -35,6 +29,7 @@ def generate_launch_description():
             parameters=local_planner_params,
             output='screen'
         ),
+        # Ego vehicle controller (scenario director)
         Node(
             package='scenario_director',
             executable='scenario_director_node',
@@ -42,11 +37,10 @@ def generate_launch_description():
             parameters=ego_params,
             output='screen'
         ),
-        Node(
-            package='scenario_director',
-            executable='npc_controller_node',
-            name='npc_controller',
-            parameters=npc_params,
-            output='screen'
-        )
+        # All 9 NPC controllers
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                f"{share}/launch/npc.launch.py"
+            ),
+        ),
     ])

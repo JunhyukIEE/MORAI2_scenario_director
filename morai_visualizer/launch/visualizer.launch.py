@@ -7,27 +7,43 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
+NUM_NPCS = 9
+
+# NPC colors (distinct colors for each NPC)
+NPC_COLORS = [
+    [0.2, 0.6, 1.0, 0.9],   # NPC_1: Blue
+    [1.0, 0.6, 0.2, 0.9],   # NPC_2: Orange
+    [0.6, 1.0, 0.2, 0.9],   # NPC_3: Lime
+    [1.0, 0.2, 0.6, 0.9],   # NPC_4: Pink
+    [0.2, 1.0, 0.8, 0.9],   # NPC_5: Cyan
+    [0.8, 0.2, 1.0, 0.9],   # NPC_6: Purple
+    [1.0, 1.0, 0.2, 0.9],   # NPC_7: Yellow
+    [0.4, 0.4, 0.8, 0.9],   # NPC_8: Slate Blue
+    [0.8, 0.4, 0.4, 0.9],   # NPC_9: Salmon
+]
+
+
 def generate_launch_description():
     map_yaml = LaunchConfiguration('map_yaml')
     frame_id = LaunchConfiguration('frame_id')
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config = LaunchConfiguration('rviz_config')
     use_vehicle_marker = LaunchConfiguration('use_vehicle_marker')
-    use_opponent_marker = LaunchConfiguration('use_opponent_marker')
+    use_npc_markers = LaunchConfiguration('use_npc_markers')
     use_waypoints_path = LaunchConfiguration('use_waypoints_path')
     use_static_map_odom_tf = LaunchConfiguration('use_static_map_odom_tf')
     use_static_world_map_tf = LaunchConfiguration('use_static_world_map_tf')
     odom_topic = LaunchConfiguration('odom_topic')
-    opponent_odom_topic = LaunchConfiguration('opponent_odom_topic')
-    opponent_odom_topic_2 = LaunchConfiguration('opponent_odom_topic_2')
-    opponent_odom_topic_3 = LaunchConfiguration('opponent_odom_topic_3')
     waypoints_csv = LaunchConfiguration('waypoints_csv')
     box_length = LaunchConfiguration('box_length')
     box_width = LaunchConfiguration('box_width')
     box_height = LaunchConfiguration('box_height')
     use_msg_frame = LaunchConfiguration('use_msg_frame')
 
-    return LaunchDescription([
+    # NPC odom topic configurations
+    npc_odom_topics = [LaunchConfiguration(f'npc_{i}_odom_topic') for i in range(1, NUM_NPCS + 1)]
+
+    launch_items = [
         DeclareLaunchArgument(
             'map_yaml',
             default_value=PathJoinSubstitution([
@@ -59,12 +75,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_vehicle_marker',
             default_value='true',
-            description='Publish vehicle box marker from /odom',
+            description='Publish ego vehicle box marker',
         ),
         DeclareLaunchArgument(
-            'use_opponent_marker',
+            'use_npc_markers',
             default_value='true',
-            description='Publish opponent box marker from /opponent/odom',
+            description='Publish NPC vehicle box markers',
         ),
         DeclareLaunchArgument(
             'use_waypoints_path',
@@ -83,23 +99,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'odom_topic',
-            default_value='/vehicle1/odom',
-            description='Odometry topic for vehicle pose',
-        ),
-        DeclareLaunchArgument(
-            'opponent_odom_topic',
-            default_value='/vehicle2/odom',
-            description='Odometry topic for opponent pose',
-        ),
-        DeclareLaunchArgument(
-            'opponent_odom_topic_2',
-            default_value='/vehicle3/odom',
-            description='Odometry topic for opponent pose (vehicle3)',
-        ),
-        DeclareLaunchArgument(
-            'opponent_odom_topic_3',
-            default_value='/vehicle4/odom',
-            description='Odometry topic for opponent pose (vehicle4)',
+            default_value='/ego/odom',
+            description='Odometry topic for ego vehicle pose',
         ),
         DeclareLaunchArgument(
             'waypoints_csv',
@@ -130,6 +131,20 @@ def generate_launch_description():
             default_value='true',
             description='Use frame_id from incoming odometry messages',
         ),
+    ]
+
+    # NPC odom topic launch arguments
+    for i in range(1, NUM_NPCS + 1):
+        launch_items.append(
+            DeclareLaunchArgument(
+                f'npc_{i}_odom_topic',
+                default_value=f'/NPC_{i}/odom',
+                description=f'Odometry topic for NPC_{i} pose',
+            )
+        )
+
+    # Core nodes
+    launch_items.extend([
         Node(
             package='nav2_map_server',
             executable='map_server',
@@ -187,10 +202,11 @@ def generate_launch_description():
             output='screen',
             condition=IfCondition(use_waypoints_path),
         ),
+        # Ego vehicle marker
         Node(
             package='morai_visualizer',
             executable='vehicle_marker',
-            name='vehicle_marker',
+            name='ego_vehicle_marker',
             parameters=[{
                 'odom_topic': odom_topic,
                 'frame_id': frame_id,
@@ -204,58 +220,30 @@ def generate_launch_description():
             output='screen',
             condition=IfCondition(use_vehicle_marker),
         ),
-        Node(
-            package='morai_visualizer',
-            executable='vehicle_marker',
-            name='opponent_marker',
-            parameters=[{
-                'odom_topic': opponent_odom_topic,
-                'frame_id': frame_id,
-                'use_msg_frame': ParameterValue(use_msg_frame, value_type=bool),
-                'box_length': ParameterValue(box_length, value_type=float),
-                'box_width': ParameterValue(box_width, value_type=float),
-                'box_height': ParameterValue(box_height, value_type=float),
-                'marker_ns': 'opponent_vehicle',
-                'marker_id': 1,
-                'color_rgba': [0.2, 0.6, 1.0, 0.9],
-            }],
-            output='screen',
-            condition=IfCondition(use_opponent_marker),
-        ),
-        Node(
-            package='morai_visualizer',
-            executable='vehicle_marker',
-            name='opponent_marker_2',
-            parameters=[{
-                'odom_topic': opponent_odom_topic_2,
-                'frame_id': frame_id,
-                'use_msg_frame': ParameterValue(use_msg_frame, value_type=bool),
-                'box_length': ParameterValue(box_length, value_type=float),
-                'box_width': ParameterValue(box_width, value_type=float),
-                'box_height': ParameterValue(box_height, value_type=float),
-                'marker_ns': 'opponent_vehicle_2',
-                'marker_id': 2,
-                'color_rgba': [1.0, 0.6, 0.2, 0.9],
-            }],
-            output='screen',
-            condition=IfCondition(use_opponent_marker),
-        ),
-        Node(
-            package='morai_visualizer',
-            executable='vehicle_marker',
-            name='opponent_marker_3',
-            parameters=[{
-                'odom_topic': opponent_odom_topic_3,
-                'frame_id': frame_id,
-                'use_msg_frame': ParameterValue(use_msg_frame, value_type=bool),
-                'box_length': ParameterValue(box_length, value_type=float),
-                'box_width': ParameterValue(box_width, value_type=float),
-                'box_height': ParameterValue(box_height, value_type=float),
-                'marker_ns': 'opponent_vehicle_3',
-                'marker_id': 3,
-                'color_rgba': [0.6, 1.0, 0.2, 0.9],
-            }],
-            output='screen',
-            condition=IfCondition(use_opponent_marker),
-        ),
     ])
+
+    # NPC vehicle markers
+    for i in range(NUM_NPCS):
+        npc_id = i + 1
+        launch_items.append(
+            Node(
+                package='morai_visualizer',
+                executable='vehicle_marker',
+                name=f'npc_{npc_id}_marker',
+                parameters=[{
+                    'odom_topic': npc_odom_topics[i],
+                    'frame_id': frame_id,
+                    'use_msg_frame': ParameterValue(use_msg_frame, value_type=bool),
+                    'box_length': ParameterValue(box_length, value_type=float),
+                    'box_width': ParameterValue(box_width, value_type=float),
+                    'box_height': ParameterValue(box_height, value_type=float),
+                    'marker_ns': f'npc_{npc_id}_vehicle',
+                    'marker_id': npc_id,
+                    'color_rgba': NPC_COLORS[i],
+                }],
+                output='screen',
+                condition=IfCondition(use_npc_markers),
+            )
+        )
+
+    return LaunchDescription(launch_items)

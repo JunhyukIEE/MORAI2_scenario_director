@@ -18,8 +18,11 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <vector>
 
 namespace {
+
+constexpr int NUM_NPCS = 9;
 
 bool extract_number(const std::string &json, const std::string &key, double &out) {
   const std::string token = "\"" + key + "\"";
@@ -69,31 +72,52 @@ public:
   : rclcpp::Node("udp_receiver"), running_(true) {
     declare_parameter<std::string>("udp.recv_ip", "0.0.0.0");
     declare_parameter<int>("udp.ego_recv_port", 9090);
-    declare_parameter<int>("udp.opponent_recv_port", 9091);
     declare_parameter<bool>("udp.angles_in_degrees", true);
+
+    // Declare NPC ports (9190, 9290, ..., 9990)
+    for (int i = 1; i <= NUM_NPCS; ++i) {
+      std::string param_name = "udp.npc" + std::to_string(i) + "_recv_port";
+      int default_port = 9000 + i * 100 + 90;  // 9190, 9290, ..., 9990
+      declare_parameter<int>(param_name, default_port);
+    }
 
     recv_ip_ = get_parameter("udp.recv_ip").as_string();
     ego_recv_port_ = get_parameter("udp.ego_recv_port").as_int();
-    opponent_recv_port_ = get_parameter("udp.opponent_recv_port").as_int();
     angles_in_degrees_ = get_parameter("udp.angles_in_degrees").as_bool();
 
+    // Get NPC ports
+    for (int i = 1; i <= NUM_NPCS; ++i) {
+      std::string param_name = "udp.npc" + std::to_string(i) + "_recv_port";
+      npc_recv_ports_[i-1] = get_parameter(param_name).as_int();
+    }
+
+    // Ego publishers
     ego_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/ego/odom", 10);
     ego_velocity_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/velocity", 10);
     ego_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/acceleration", 10);
     ego_steering_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/steering_state", 10);
 
-    opp_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/opponent/odom", 10);
-    opp_velocity_pub_ = create_publisher<std_msgs::msg::Float64>("/opponent/vehicle/velocity", 10);
-    opp_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/opponent/vehicle/acceleration", 10);
-    opp_steering_pub_ = create_publisher<std_msgs::msg::Float64>("/opponent/vehicle/steering_state", 10);
+    // NPC publishers
+    for (int i = 1; i <= NUM_NPCS; ++i) {
+      std::string prefix = "/NPC_" + std::to_string(i);
+      npc_odom_pubs_[i-1] = create_publisher<nav_msgs::msg::Odometry>(prefix + "/odom", 10);
+      npc_velocity_pubs_[i-1] = create_publisher<std_msgs::msg::Float64>(prefix + "/vehicle/velocity", 10);
+      npc_accel_pubs_[i-1] = create_publisher<std_msgs::msg::Float64>(prefix + "/vehicle/acceleration", 10);
+      npc_steering_pubs_[i-1] = create_publisher<std_msgs::msg::Float64>(prefix + "/vehicle/steering_state", 10);
+    }
 
     setup_sockets();
 
+    // Start ego thread
     ego_thread_ = std::thread(&UDPReceiverNode::ego_receive_loop, this);
-    opp_thread_ = std::thread(&UDPReceiverNode::opponent_receive_loop, this);
 
-    RCLCPP_INFO(get_logger(), "UDP Receiver started (ego: %d, opponent: %d)",
-                ego_recv_port_, opponent_recv_port_);
+    // Start NPC threads
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      npc_threads_[i] = std::thread(&UDPReceiverNode::npc_receive_loop, this, i);
+    }
+
+    RCLCPP_INFO(get_logger(), "UDP Receiver started (ego: %d, NPCs: 9190-9990)",
+                ego_recv_port_);
   }
 
   ~UDPReceiverNode() override {
@@ -101,63 +125,77 @@ public:
     if (ego_thread_.joinable()) {
       ego_thread_.join();
     }
-    if (opp_thread_.joinable()) {
-      opp_thread_.join();
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      if (npc_threads_[i].joinable()) {
+        npc_threads_[i].join();
+      }
     }
     if (ego_sock_ >= 0) {
       close(ego_sock_);
     }
-    if (opp_sock_ >= 0) {
-      close(opp_sock_);
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      if (npc_socks_[i] >= 0) {
+        close(npc_socks_[i]);
+      }
     }
   }
 
 private:
   void setup_sockets() {
     ego_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
-    opp_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
-
-    if (ego_sock_ < 0 || opp_sock_ < 0) {
-      throw std::runtime_error("Failed to create UDP sockets");
+    if (ego_sock_ < 0) {
+      throw std::runtime_error("Failed to create ego UDP socket");
     }
 
     int reuse = 1;
     setsockopt(ego_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    setsockopt(opp_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
     timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 100000; // 100ms timeout
     setsockopt(ego_sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(opp_sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     sockaddr_in ego_addr{};
     ego_addr.sin_family = AF_INET;
     ego_addr.sin_port = htons(static_cast<uint16_t>(ego_recv_port_));
     ego_addr.sin_addr.s_addr = inet_addr(recv_ip_.c_str());
 
-    sockaddr_in opp_addr{};
-    opp_addr.sin_family = AF_INET;
-    opp_addr.sin_port = htons(static_cast<uint16_t>(opponent_recv_port_));
-    opp_addr.sin_addr.s_addr = inet_addr(recv_ip_.c_str());
-
     if (bind(ego_sock_, reinterpret_cast<sockaddr*>(&ego_addr), sizeof(ego_addr)) < 0) {
       throw std::runtime_error("Failed to bind ego UDP socket");
     }
-    if (bind(opp_sock_, reinterpret_cast<sockaddr*>(&opp_addr), sizeof(opp_addr)) < 0) {
-      throw std::runtime_error("Failed to bind opponent UDP socket");
+
+    // Setup NPC sockets
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      npc_socks_[i] = socket(AF_INET, SOCK_DGRAM, 0);
+      if (npc_socks_[i] < 0) {
+        throw std::runtime_error("Failed to create NPC_" + std::to_string(i+1) + " UDP socket");
+      }
+
+      setsockopt(npc_socks_[i], SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+      setsockopt(npc_socks_[i], SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+      sockaddr_in npc_addr{};
+      npc_addr.sin_family = AF_INET;
+      npc_addr.sin_port = htons(static_cast<uint16_t>(npc_recv_ports_[i]));
+      npc_addr.sin_addr.s_addr = inet_addr(recv_ip_.c_str());
+
+      if (bind(npc_socks_[i], reinterpret_cast<sockaddr*>(&npc_addr), sizeof(npc_addr)) < 0) {
+        throw std::runtime_error("Failed to bind NPC_" + std::to_string(i+1) + " UDP socket (port " +
+                                 std::to_string(npc_recv_ports_[i]) + ")");
+      }
     }
   }
 
   void ego_receive_loop() {
-    receive_loop(ego_sock_, true);
+    receive_loop(ego_sock_, -1);  // -1 indicates ego
   }
 
-  void opponent_receive_loop() {
-    receive_loop(opp_sock_, false);
+  void npc_receive_loop(int npc_index) {
+    receive_loop(npc_socks_[npc_index], npc_index);
   }
 
-  void receive_loop(int sock, bool is_ego) {
+  void receive_loop(int sock, int npc_index) {
+    // npc_index: -1 for ego, 0-8 for NPC_1 to NPC_9
     while (running_.load()) {
       char buffer[4096];
       sockaddr_in sender{};
@@ -170,18 +208,18 @@ private:
 
       constexpr ssize_t kExpectedPacketLen = 108;
       if (len == kExpectedPacketLen) {
-        parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), is_ego);
+        parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), npc_index);
         continue;
       }
 
       std::string data(buffer, static_cast<size_t>(len));
-      if (!parse_json_vehicle(data, is_ego)) {
-        parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), is_ego);
+      if (!parse_json_vehicle(data, npc_index)) {
+        parse_binary_vehicle(reinterpret_cast<const uint8_t*>(buffer), static_cast<size_t>(len), npc_index);
       }
     }
   }
 
-  bool parse_json_vehicle(const std::string &data, bool is_ego) {
+  bool parse_json_vehicle(const std::string &data, int npc_index) {
     // Quick sanity check
     if (data.find('{') == std::string::npos) {
       return false;
@@ -191,17 +229,17 @@ private:
     double roll = 0.0, pitch = 0.0, yaw = 0.0;
     double vx = 0.0, vy = 0.0, ax = 0.0, ay = 0.0, steering = 0.0;
 
-    const bool ok_x = extract_number(data, "x", x);
-    const bool ok_y = extract_number(data, "y", y);
-    const bool ok_z = extract_number(data, "z", z);
-    const bool ok_roll = extract_number(data, "roll", roll);
-    const bool ok_pitch = extract_number(data, "pitch", pitch);
-    const bool ok_yaw = extract_number(data, "yaw", yaw);
-    const bool ok_vx = extract_number(data, "vx", vx);
-    const bool ok_vy = extract_number(data, "vy", vy);
-    const bool ok_ax = extract_number(data, "ax", ax);
-    const bool ok_ay = extract_number(data, "ay", ay);
-    const bool ok_steer = extract_number(data, "steering", steering);
+    extract_number(data, "x", x);
+    extract_number(data, "y", y);
+    extract_number(data, "z", z);
+    extract_number(data, "roll", roll);
+    extract_number(data, "pitch", pitch);
+    extract_number(data, "yaw", yaw);
+    extract_number(data, "vx", vx);
+    extract_number(data, "vy", vy);
+    extract_number(data, "ax", ax);
+    extract_number(data, "ay", ay);
+    extract_number(data, "steering", steering);
 
     if (angles_in_degrees_) {
       constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
@@ -210,27 +248,12 @@ private:
       yaw *= kDegToRad;
     }
 
-    publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
+    publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, npc_index);
     return true;
   }
 
-  void parse_binary_vehicle(const uint8_t *data, size_t len, bool is_ego) {
-    // 108 bytes 패킷 구조 (MORAI 공식 포맷):
-    // - 8 bytes: seconds (int64)
-    // - 4 bytes: nanos (int32)
-    // - 24 bytes: vehicle id (string)
-    // = 36 bytes 헤더
-    // - 72 bytes: 18 floats 데이터
-    //
-    // Float 필드 순서:
-    // f[0-2]: x_loc, y_loc, z_loc
-    // f[3-5]: x_rot, y_rot, z_rot (roll, pitch, yaw)
-    // f[6-8]: x_vel, y_vel, z_vel
-    // f[9-11]: x_acc, y_acc, z_acc
-    // f[12-14]: x_ang, y_ang, z_ang (angular velocity)
-    // f[15-17]: throttle, brake, steer_angle
-
-    constexpr size_t HEADER_SIZE = 36;  // 8 + 4 + 24 = 36 bytes
+  void parse_binary_vehicle(const uint8_t *data, size_t len, int npc_index) {
+    constexpr size_t HEADER_SIZE = 36;
     constexpr size_t NUM_FLOATS = 18;
     constexpr size_t EXPECTED_SIZE = HEADER_SIZE + NUM_FLOATS * sizeof(float);
 
@@ -242,18 +265,17 @@ private:
     float fvalues[NUM_FLOATS];
     std::memcpy(fvalues, payload, NUM_FLOATS * sizeof(float));
 
-    // 공식 필드 매핑
-    double x = fvalues[0];       // x_loc
-    double y = fvalues[1];       // y_loc
-    double z = fvalues[2];       // z_loc
-    double roll = fvalues[3];    // x_rot
-    double pitch = fvalues[4];   // y_rot
-    double yaw = fvalues[5];     // z_rot
-    double vx = fvalues[6];      // x_vel
-    double vy = fvalues[7];      // y_vel
-    double ax = fvalues[9];      // x_acc
-    double ay = fvalues[10];     // y_acc
-    double steering = fvalues[17]; // steer_angle
+    double x = fvalues[0];
+    double y = fvalues[1];
+    double z = fvalues[2];
+    double roll = fvalues[3];
+    double pitch = fvalues[4];
+    double yaw = fvalues[5];
+    double vx = fvalues[6];
+    double vy = fvalues[7];
+    double ax = fvalues[9];
+    double ay = fvalues[10];
+    double steering = fvalues[17];
 
     if (angles_in_degrees_) {
       constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
@@ -262,17 +284,22 @@ private:
       yaw *= kDegToRad;
     }
 
-    publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, is_ego);
+    publish_vehicle(x, y, z, roll, pitch, yaw, vx, vy, ax, ay, steering, npc_index);
   }
 
   void publish_vehicle(double x, double y, double z,
                        double roll, double pitch, double yaw,
                        double vx, double vy, double ax, double ay, double steering,
-                       bool is_ego) {
+                       int npc_index) {
     auto odom = nav_msgs::msg::Odometry();
     odom.header.stamp = now();
     odom.header.frame_id = "world";
-    odom.child_frame_id = is_ego ? "ego_base_link" : "opponent_base_link";
+
+    if (npc_index < 0) {
+      odom.child_frame_id = "ego_base_link";
+    } else {
+      odom.child_frame_id = "npc_" + std::to_string(npc_index + 1) + "_base_link";
+    }
 
     odom.pose.pose.position.x = x;
     odom.pose.pose.position.y = y;
@@ -296,40 +323,44 @@ private:
     std_msgs::msg::Float64 steer_msg;
     steer_msg.data = steering;
 
-    if (is_ego) {
+    if (npc_index < 0) {
+      // Ego
       ego_odom_pub_->publish(odom);
       ego_velocity_pub_->publish(vel_msg);
       ego_accel_pub_->publish(accel_msg);
       ego_steering_pub_->publish(steer_msg);
     } else {
-      opp_odom_pub_->publish(odom);
-      opp_velocity_pub_->publish(vel_msg);
-      opp_accel_pub_->publish(accel_msg);
-      opp_steering_pub_->publish(steer_msg);
+      // NPC
+      npc_odom_pubs_[npc_index]->publish(odom);
+      npc_velocity_pubs_[npc_index]->publish(vel_msg);
+      npc_accel_pubs_[npc_index]->publish(accel_msg);
+      npc_steering_pubs_[npc_index]->publish(steer_msg);
     }
   }
 
   std::string recv_ip_;
   int ego_recv_port_ = 9090;
-  int opponent_recv_port_ = 9091;
+  std::array<int, NUM_NPCS> npc_recv_ports_;
 
   int ego_sock_ = -1;
-  int opp_sock_ = -1;
+  std::array<int, NUM_NPCS> npc_socks_;
   bool angles_in_degrees_ = true;
 
   std::atomic<bool> running_;
   std::thread ego_thread_;
-  std::thread opp_thread_;
+  std::array<std::thread, NUM_NPCS> npc_threads_;
 
+  // Ego publishers
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ego_odom_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_accel_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_steering_pub_;
 
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr opp_odom_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr opp_velocity_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr opp_accel_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr opp_steering_pub_;
+  // NPC publishers
+  std::array<rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr, NUM_NPCS> npc_odom_pubs_;
+  std::array<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_velocity_pubs_;
+  std::array<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_accel_pubs_;
+  std::array<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_steering_pubs_;
 };
 
 int main(int argc, char **argv) {

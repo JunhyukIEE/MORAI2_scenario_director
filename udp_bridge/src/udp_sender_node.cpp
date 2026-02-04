@@ -6,27 +6,43 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <array>
 #include <cstring>
 #include <functional>
 #include <string>
+
+namespace {
+constexpr int NUM_NPCS = 9;
+}
 
 class UDPSenderNode : public rclcpp::Node {
 public:
   UDPSenderNode()
   : rclcpp::Node("udp_sender") {
     declare_parameter<std::string>("udp.send_ip", "127.0.0.1");
-    declare_parameter<int>("udp.ego_send_port", 9093);
-    declare_parameter<int>("udp.npc_send_port", 9094);
+    declare_parameter<int>("udp.ego_send_port", 9091);
+
+    // Declare NPC send ports (9191, 9291, ..., 9991)
+    for (int i = 1; i <= NUM_NPCS; ++i) {
+      std::string param_name = "udp.npc" + std::to_string(i) + "_send_port";
+      int default_port = 9000 + i * 100 + 91;  // 9191, 9291, ..., 9991
+      declare_parameter<int>(param_name, default_port);
+    }
 
     send_ip_ = get_parameter("udp.send_ip").as_string();
     ego_send_port_ = get_parameter("udp.ego_send_port").as_int();
-    npc_send_port_ = get_parameter("udp.npc_send_port").as_int();
+
+    // Get NPC ports
+    for (int i = 1; i <= NUM_NPCS; ++i) {
+      std::string param_name = "udp.npc" + std::to_string(i) + "_send_port";
+      npc_send_ports_[i-1] = get_parameter(param_name).as_int();
+    }
 
     setupSocket();
     setupSubscriptions();
 
-    RCLCPP_INFO(get_logger(), "UDP Sender started (ego: %s:%d, npc: %s:%d)",
-                send_ip_.c_str(), ego_send_port_, send_ip_.c_str(), npc_send_port_);
+    RCLCPP_INFO(get_logger(), "UDP Sender started (ego: %s:%d, NPCs: 9191-9991)",
+                send_ip_.c_str(), ego_send_port_);
   }
 
   ~UDPSenderNode() override {
@@ -42,30 +58,39 @@ private:
       throw std::runtime_error("Failed to create UDP send socket");
     }
 
+    // Setup ego send address
     std::memset(&ego_send_addr_, 0, sizeof(ego_send_addr_));
     ego_send_addr_.sin_family = AF_INET;
     ego_send_addr_.sin_port = htons(static_cast<uint16_t>(ego_send_port_));
     ego_send_addr_.sin_addr.s_addr = inet_addr(send_ip_.c_str());
 
-    std::memset(&npc_send_addr_, 0, sizeof(npc_send_addr_));
-    npc_send_addr_.sin_family = AF_INET;
-    npc_send_addr_.sin_port = htons(static_cast<uint16_t>(npc_send_port_));
-    npc_send_addr_.sin_addr.s_addr = inet_addr(send_ip_.c_str());
+    // Setup NPC send addresses
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      std::memset(&npc_send_addrs_[i], 0, sizeof(npc_send_addrs_[i]));
+      npc_send_addrs_[i].sin_family = AF_INET;
+      npc_send_addrs_[i].sin_port = htons(static_cast<uint16_t>(npc_send_ports_[i]));
+      npc_send_addrs_[i].sin_addr.s_addr = inet_addr(send_ip_.c_str());
+    }
   }
 
   void setupSubscriptions() {
+    // Ego subscription
     ego_cmd_sub_ = create_subscription<scenario_director::msg::VehicleCmd>(
       "/ego/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::egoCmdCallback, this, std::placeholders::_1));
 
-    npc_cmd_sub_ = create_subscription<scenario_director::msg::VehicleCmd>(
-      "/opponent/ctrl_cmd", 10,
-      std::bind(&UDPSenderNode::npcCmdCallback, this, std::placeholders::_1));
+    // NPC subscriptions
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      std::string topic = "/NPC_" + std::to_string(i + 1) + "/ctrl_cmd";
+      npc_cmd_subs_[i] = create_subscription<scenario_director::msg::VehicleCmd>(
+        topic, 10,
+        [this, i](const scenario_director::msg::VehicleCmd::SharedPtr msg) {
+          npcCmdCallback(msg, i);
+        });
+    }
   }
 
   void egoCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg) {
-    // MORAI 포맷: little-endian, 3 doubles (throttle, brake, steering_wheel_deg)
-    // steering: rad -> deg 변환만 (180/π ≈ 57.3)
     constexpr double RAD_TO_DEG = 57.2957795131;
 
     double throttle = msg->throttle;
@@ -79,10 +104,9 @@ private:
 
     sendto(socket_fd_, payload, sizeof(payload), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
-
   }
 
-  void npcCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg) {
+  void npcCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg, int npc_index) {
     constexpr double RAD_TO_DEG = 57.2957795131;
 
     double throttle = msg->throttle;
@@ -95,19 +119,19 @@ private:
     std::memcpy(payload + 16, &steering_deg, sizeof(double));
 
     sendto(socket_fd_, payload, sizeof(payload), 0,
-           reinterpret_cast<sockaddr*>(&npc_send_addr_), sizeof(npc_send_addr_));
+           reinterpret_cast<sockaddr*>(&npc_send_addrs_[npc_index]), sizeof(npc_send_addrs_[npc_index]));
   }
 
   std::string send_ip_;
-  int ego_send_port_ = 9093;
-  int npc_send_port_ = 9094;
+  int ego_send_port_ = 9091;
+  std::array<int, NUM_NPCS> npc_send_ports_;
 
   int socket_fd_ = -1;
   sockaddr_in ego_send_addr_{};
-  sockaddr_in npc_send_addr_{};
+  std::array<sockaddr_in, NUM_NPCS> npc_send_addrs_;
 
   rclcpp::Subscription<scenario_director::msg::VehicleCmd>::SharedPtr ego_cmd_sub_;
-  rclcpp::Subscription<scenario_director::msg::VehicleCmd>::SharedPtr npc_cmd_sub_;
+  std::array<rclcpp::Subscription<scenario_director::msg::VehicleCmd>::SharedPtr, NUM_NPCS> npc_cmd_subs_;
 };
 
 int main(int argc, char **argv) {
