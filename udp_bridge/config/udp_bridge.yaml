@@ -2,13 +2,13 @@ udp_receiver:
   ros__parameters:
     udp.recv_ip: "169.254.58.1" #"192.132.72.1"
     udp.ego_recv_port: 9090
-    udp.opponent_recv_port: 9091
+    udp.opponent_recv_port: 9190
 
 udp_sender:
   ros__parameters:
     udp.send_ip: "169.254.58.138" #"192.132.72.58"
-    udp.ego_send_port: 9093
-    udp.npc_send_port: 9094
+    udp.ego_send_port: 9091
+    udp.npc_send_port: 9191
 
 camera_receiver:
   ros__parameters:

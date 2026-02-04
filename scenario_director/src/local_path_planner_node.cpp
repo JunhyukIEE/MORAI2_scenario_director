@@ -6,6 +6,7 @@
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "scenario_director/local_path_planner.hpp"
@@ -90,6 +91,12 @@ public:
     declare_parameter<double>("strategy.overtake.chicane_detection_dist", 40.0);
     declare_parameter<double>("strategy.overtake.min_corner_curvature", 0.05);
     declare_parameter<double>("strategy.overtake.apex_search_distance", 50.0);
+    declare_parameter<double>("strategy.overtake.approach_speed_boost", 1.05);
+    declare_parameter<double>("strategy.overtake.position_lateral_offset", 2.0);
+    declare_parameter<double>("strategy.overtake.execute_speed_boost", 1.10);
+    declare_parameter<double>("strategy.overtake.slipstream_distance", 8.0);
+    declare_parameter<double>("strategy.overtake.slipstream_speed_boost", 1.08);
+    declare_parameter<double>("strategy.overtake.gap_reward_scale", 200.0);
 
     // Load paths
     const std::string share = ament_index_cpp::get_package_share_directory("scenario_director");
@@ -186,6 +193,18 @@ public:
         get_parameter("strategy.overtake.min_corner_curvature").as_double();
     config.strategy.overtake.apex_search_distance =
         get_parameter("strategy.overtake.apex_search_distance").as_double();
+    config.strategy.overtake.approach_speed_boost =
+        get_parameter("strategy.overtake.approach_speed_boost").as_double();
+    config.strategy.overtake.position_lateral_offset =
+        get_parameter("strategy.overtake.position_lateral_offset").as_double();
+    config.strategy.overtake.execute_speed_boost =
+        get_parameter("strategy.overtake.execute_speed_boost").as_double();
+    config.strategy.overtake.slipstream_distance =
+        get_parameter("strategy.overtake.slipstream_distance").as_double();
+    config.strategy.overtake.slipstream_speed_boost =
+        get_parameter("strategy.overtake.slipstream_speed_boost").as_double();
+    config.strategy.overtake.gap_reward_scale =
+        get_parameter("strategy.overtake.gap_reward_scale").as_double();
 
     // Initialize planner
     planner_ = std::make_shared<LocalPathPlanner>(
@@ -207,6 +226,10 @@ public:
     overtake_flag_sub_ = create_subscription<std_msgs::msg::Bool>(
         "/ego/overtake_flag", 10,
         std::bind(&LocalPathPlannerNode::overtakeFlagCallback, this, std::placeholders::_1));
+
+    overtake_phase_sub_ = create_subscription<std_msgs::msg::Int32>(
+        "/ego/overtake_phase", 10,
+        std::bind(&LocalPathPlannerNode::overtakePhaseCallback, this, std::placeholders::_1));
 
     // Publishers
     planned_path_pub_ = create_publisher<nav_msgs::msg::Path>("/local_planner/path", 10);
@@ -257,10 +280,16 @@ private:
     overtake_flag_ = msg->data;
   }
 
+  void overtakePhaseCallback(const std_msgs::msg::Int32::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    overtake_phase_ = msg->data;
+  }
+
   void planningCallback() {
     double ego_x, ego_y, ego_yaw, ego_v;
     double opp_x, opp_y, opp_v;
     bool overtake_flag;
+    int overtake_phase;
     bool can_plan = false;
 
     {
@@ -274,6 +303,7 @@ private:
         opp_y = opp_y_;
         opp_v = opp_v_;
         overtake_flag = overtake_flag_;
+        overtake_phase = overtake_phase_;
         can_plan = true;
       }
     }
@@ -283,7 +313,7 @@ private:
     }
 
     // Run planner
-    auto result = planner_->plan(ego_x, ego_y, ego_yaw, ego_v, opp_x, opp_y, opp_v, overtake_flag);
+    auto result = planner_->plan(ego_x, ego_y, ego_yaw, ego_v, opp_x, opp_y, opp_v, overtake_flag, overtake_phase);
 
     // Publish candidate path as the planned path (no curling at end)
     nav_msgs::msg::Path path_msg;
@@ -388,6 +418,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr overtake_flag_sub_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr overtake_phase_sub_;
 
   // Publishers
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr planned_path_pub_;
@@ -407,6 +438,7 @@ private:
   bool ego_received_ = false;
   bool opp_received_ = false;
   bool overtake_flag_ = false;
+  int overtake_phase_ = 0;  // 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
 };
 
 }  // namespace scenario_director

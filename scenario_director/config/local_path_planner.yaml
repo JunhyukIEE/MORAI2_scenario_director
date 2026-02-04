@@ -79,3 +79,11 @@ local_path_planner:
     # 공통 설정
     strategy.overtake.min_corner_curvature: 0.025
     strategy.overtake.apex_search_distance: 20.0
+
+    # Phase 기반 추월 전략 (새로 추가)
+    strategy.overtake.approach_speed_boost: 1.05      # 접근 단계 속도 부스트
+    strategy.overtake.position_lateral_offset: 2.5    # 위치 선점 시 목표 lateral offset (m)
+    strategy.overtake.execute_speed_boost: 1.12       # 실행 단계 속도 부스트
+    strategy.overtake.slipstream_distance: 10.0       # 슬립스트림 효과 거리 (m)
+    strategy.overtake.slipstream_speed_boost: 1.06    # 슬립스트림 속도 부스트
+    strategy.overtake.gap_reward_scale: 300.0         # 갭 찾기 보상 스케일 (높을수록 적극적)

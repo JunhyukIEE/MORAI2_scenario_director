@@ -60,6 +60,14 @@ struct OvertakeStrategyConfig {
 
   double min_corner_curvature = 0.05;
   double apex_search_distance = 50.0;
+
+  // Phase-based overtake parameters
+  double approach_speed_boost = 1.05;       // 접근 단계 속도 부스트
+  double position_lateral_offset = 2.0;     // 위치 선점 시 목표 lateral offset
+  double execute_speed_boost = 1.10;        // 실행 단계 속도 부스트
+  double slipstream_distance = 8.0;         // 슬립스트림 효과 거리
+  double slipstream_speed_boost = 1.08;     // 슬립스트림 속도 부스트
+  double gap_reward_scale = 200.0;          // 갭 찾기 보상 스케일
 };
 
 struct StrategyConfig {
@@ -193,9 +201,10 @@ public:
                    const std::string& waypoints_csv,
                    const LocalPlannerConfig& config = LocalPlannerConfig());
 
+  // overtake_phase: 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
   PlanResult plan(double ego_x, double ego_y, double ego_yaw, double ego_v,
                   double opp_x, double opp_y, double opp_v,
-                  bool overtake_flag);
+                  bool overtake_flag, int overtake_phase = 0);
 
   std::shared_ptr<ReferenceLine> getReferenceLine() const { return ref_; }
   const LocalPlannerConfig& config() const { return config_; }

@@ -4,6 +4,7 @@
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -63,8 +64,12 @@ public:
     declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.3);
-    declare_parameter<double>("overtake.trigger_distance", 20.0);
+    declare_parameter<double>("overtake.trigger_distance", 30.0);
+    declare_parameter<double>("overtake.approach_distance", 20.0);
+    declare_parameter<double>("overtake.position_distance", 10.0);
+    declare_parameter<double>("overtake.execute_distance", 5.0);
     declare_parameter<double>("overtake.complete_distance", 8.0);
+    declare_parameter<double>("overtake.speed_advantage_threshold", 2.0);
     declare_parameter<std::string>("local_path.topic", "/local_planner/path");
     declare_parameter<std::string>("local_speed.topic", "/local_planner/path_speeds");
 
@@ -100,7 +105,11 @@ public:
     max_brake_ = get_parameter("control.max_brake").as_double();
     max_steering_ = cfg.max_steering;
     overtake_trigger_distance_ = get_parameter("overtake.trigger_distance").as_double();
+    overtake_approach_distance_ = get_parameter("overtake.approach_distance").as_double();
+    overtake_position_distance_ = get_parameter("overtake.position_distance").as_double();
+    overtake_execute_distance_ = get_parameter("overtake.execute_distance").as_double();
     overtake_complete_distance_ = get_parameter("overtake.complete_distance").as_double();
+    speed_advantage_threshold_ = get_parameter("overtake.speed_advantage_threshold").as_double();
     pp_config_ = cfg;
 
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -122,6 +131,7 @@ public:
 
     cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/ego/ctrl_cmd", 10);
     overtake_pub_ = create_publisher<std_msgs::msg::Bool>("/ego/overtake_flag", 10);
+    overtake_phase_pub_ = create_publisher<std_msgs::msg::Int32>("/ego/overtake_phase", 10);
 
     const double loop_hz = get_parameter("control.loop_hz").as_double();
     const int period_ms = static_cast<int>(std::round(1000.0 / std::max(1.0, loop_hz)));
@@ -229,6 +239,10 @@ private:
     std_msgs::msg::Bool flag_msg;
     flag_msg.data = overtake_active;
     overtake_pub_->publish(flag_msg);
+
+    std_msgs::msg::Int32 phase_msg;
+    phase_msg.data = static_cast<int>(overtake_phase_);
+    overtake_phase_pub_->publish(phase_msg);
   }
 
   double computeLookahead() const {
@@ -240,30 +254,111 @@ private:
   bool updateOvertakeState() {
     if (!has_opp_pose_) {
       overtake_state_ = OvertakeState::NONE;
+      overtake_phase_ = OvertakePhase::NONE;
+      chosen_side_ = 0;
       return false;
     }
+
     const double dx = opp_x_ - x_;
     const double dy = opp_y_ - y_;
     const double dist = std::sqrt(dx * dx + dy * dy);
     const double heading_x = std::cos(yaw_);
     const double heading_y = std::sin(yaw_);
-    const double dot = dx * heading_x + dy * heading_y;
-    const bool is_ahead = dot > 0.0;
+    const double forward_dist = dx * heading_x + dy * heading_y;  // 전방 거리 (음수면 뒤에 있음)
+    const double lateral_dist = -dx * heading_y + dy * heading_x;  // 측면 거리 (양수면 오른쪽)
+    const bool is_ahead = forward_dist > 0.0;
+    const bool is_beside = std::abs(forward_dist) < 5.0 && std::abs(lateral_dist) < 4.0;
+    const double speed_diff = speed_ - opp_speed_;  // 속도 차이 (양수면 내가 빠름)
+    const bool has_speed_advantage = speed_diff > speed_advantage_threshold_;
 
-    if (overtake_state_ == OvertakeState::NONE) {
-      if (is_ahead && dist <= overtake_trigger_distance_) {
-        overtake_state_ = OvertakeState::PASS;
-        overtake_start_time_ = now();
-        RCLCPP_INFO(get_logger(), "Overtake triggered: distance=%.1f m", dist);
-      }
-    } else {
-      if (!is_ahead && dist > overtake_complete_distance_) {
-        overtake_state_ = OvertakeState::NONE;
-        RCLCPP_INFO(get_logger(), "Overtake completed");
-      }
+    // 상태 머신
+    switch (overtake_phase_) {
+      case OvertakePhase::NONE:
+        // 조건: 상대가 앞에 있고 트리거 거리 이내
+        if (is_ahead && dist <= overtake_trigger_distance_) {
+          overtake_phase_ = OvertakePhase::APPROACH;
+          overtake_state_ = OvertakeState::ACTIVE;
+          overtake_start_time_ = now();
+          RCLCPP_INFO(get_logger(), "Overtake APPROACH: dist=%.1f m, speed_diff=%.1f m/s",
+                      dist, speed_diff);
+        }
+        break;
+
+      case OvertakePhase::APPROACH:
+        // 접근 단계: 상대 뒤에서 위치 선점 준비
+        if (!is_ahead || dist > overtake_trigger_distance_ * 1.2) {
+          // 상대가 멀어지면 취소
+          overtake_phase_ = OvertakePhase::NONE;
+          overtake_state_ = OvertakeState::NONE;
+          chosen_side_ = 0;
+          RCLCPP_INFO(get_logger(), "Overtake cancelled: opponent moved away");
+        } else if (dist <= overtake_position_distance_) {
+          // 위치 선점 단계로 전환
+          overtake_phase_ = OvertakePhase::POSITION;
+          // 사이드 결정: 현재 lateral 위치 기반 또는 속도 우위 시 안쪽 선택
+          if (chosen_side_ == 0) {
+            if (has_speed_advantage) {
+              // 속도 우위가 있으면 현재 위치에서 바깥쪽으로 추월
+              chosen_side_ = (lateral_dist > 0.0) ? 1 : -1;
+            } else {
+              // 속도 우위가 없으면 상대 옆으로 붙어서 기회를 노림
+              chosen_side_ = (lateral_dist > 0.0) ? 1 : -1;
+            }
+          }
+          RCLCPP_INFO(get_logger(), "Overtake POSITION: side=%s, dist=%.1f m",
+                      chosen_side_ > 0 ? "RIGHT" : "LEFT", dist);
+        }
+        break;
+
+      case OvertakePhase::POSITION:
+        // 위치 선점 단계: 옆으로 위치 잡기
+        if (!is_ahead && !is_beside) {
+          // 상대를 완전히 추월함
+          overtake_phase_ = OvertakePhase::COMPLETE;
+          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: passed opponent");
+        } else if (dist > overtake_trigger_distance_ * 1.2) {
+          // 상대가 멀어지면 취소
+          overtake_phase_ = OvertakePhase::NONE;
+          overtake_state_ = OvertakeState::NONE;
+          chosen_side_ = 0;
+          RCLCPP_INFO(get_logger(), "Overtake cancelled during positioning");
+        } else if (is_beside || dist <= overtake_execute_distance_) {
+          // 실행 단계로 전환
+          overtake_phase_ = OvertakePhase::EXECUTE;
+          RCLCPP_INFO(get_logger(), "Overtake EXECUTE: alongside opponent, lat=%.1f m",
+                      lateral_dist);
+        }
+        break;
+
+      case OvertakePhase::EXECUTE:
+        // 실행 단계: 나란히 달리면서 추월 중
+        if (!is_ahead && dist > overtake_execute_distance_) {
+          // 상대를 추월함
+          overtake_phase_ = OvertakePhase::COMPLETE;
+          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: overtake successful");
+        } else if (is_ahead && dist > overtake_position_distance_ * 1.5) {
+          // 추월 실패, 다시 접근
+          overtake_phase_ = OvertakePhase::APPROACH;
+          RCLCPP_INFO(get_logger(), "Overtake failed, returning to APPROACH");
+        }
+        break;
+
+      case OvertakePhase::COMPLETE:
+        // 완료 단계: 안전 거리 확보 후 종료
+        if (!is_ahead && dist > overtake_complete_distance_) {
+          overtake_phase_ = OvertakePhase::NONE;
+          overtake_state_ = OvertakeState::NONE;
+          chosen_side_ = 0;
+          RCLCPP_INFO(get_logger(), "Overtake finished: safe distance secured");
+        } else if (is_ahead) {
+          // 상대가 다시 앞으로 나감 (재추월 당함)
+          overtake_phase_ = OvertakePhase::APPROACH;
+          RCLCPP_INFO(get_logger(), "Re-overtaken, back to APPROACH");
+        }
+        break;
     }
 
-    return overtake_state_ != OvertakeState::NONE;
+    return overtake_state_ == OvertakeState::ACTIVE;
   }
 
   size_t getLookaheadIndexOnPath(double x, double y, double lookahead,
@@ -318,6 +413,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr local_speed_sub_;
   rclcpp::Publisher<scenario_director::msg::VehicleCmd>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr overtake_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr overtake_phase_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   double throttle_kp_ = 0.1;
@@ -325,8 +421,12 @@ private:
   double max_throttle_ = 1.0;
   double max_brake_ = 1.0;
   double max_steering_ = 0.55;
-  double overtake_trigger_distance_ = 20.0;
+  double overtake_trigger_distance_ = 30.0;
+  double overtake_approach_distance_ = 20.0;
+  double overtake_position_distance_ = 10.0;
+  double overtake_execute_distance_ = 5.0;
   double overtake_complete_distance_ = 8.0;
+  double speed_advantage_threshold_ = 2.0;
   PurePursuitConfig pp_config_;
 
   double x_ = 0.0;
@@ -346,9 +446,13 @@ private:
   bool has_local_path_ = false;
   bool has_local_speeds_ = false;
 
-  enum class OvertakeState { NONE, PASS };
+  // Overtake phase: 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
+  enum class OvertakePhase { NONE = 0, APPROACH = 1, POSITION = 2, EXECUTE = 3, COMPLETE = 4 };
+  enum class OvertakeState { NONE, ACTIVE };
   OvertakeState overtake_state_ = OvertakeState::NONE;
+  OvertakePhase overtake_phase_ = OvertakePhase::NONE;
   rclcpp::Time overtake_start_time_;
+  int chosen_side_ = 0;  // -1: left, 0: undecided, +1: right
 };
 
 }  // namespace scenario_director

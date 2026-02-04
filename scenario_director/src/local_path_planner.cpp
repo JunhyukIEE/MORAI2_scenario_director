@@ -538,7 +538,13 @@ double LocalPathPlanner::computeReward(
 PlanResult LocalPathPlanner::plan(
     double ego_x, double ego_y, double ego_yaw, double ego_v,
     double opp_x, double opp_y, double opp_v,
-    bool overtake_flag) {
+    bool overtake_flag, int overtake_phase) {
+
+  // Overtake phases: 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
+  const bool phase_approach = (overtake_phase == 1);
+  const bool phase_position = (overtake_phase == 2);
+  const bool phase_execute = (overtake_phase == 3);
+  const bool phase_complete = (overtake_phase == 4);
 
   // Get base segment ahead
   int idx0 = ref_->nearestIndex(ego_x, ego_y);
@@ -623,11 +629,22 @@ PlanResult LocalPathPlanner::plan(
   const double opp_dist = std::hypot(dx_opp, dy_opp);
   const double heading_x = std::cos(ego_yaw);
   const double heading_y = std::sin(ego_yaw);
-  const bool opp_ahead = (dx_opp * heading_x + dy_opp * heading_y) > 0.0;
+  const double forward_to_opp = dx_opp * heading_x + dy_opp * heading_y;
+  const double lateral_to_opp = -dx_opp * heading_y + dy_opp * heading_x;  // 양수 = 상대가 오른쪽
+  const bool opp_ahead = forward_to_opp > 0.0;
+  const bool opp_beside = std::abs(forward_to_opp) < 5.0 && std::abs(lateral_to_opp) < 4.0;
   const double dummy_trigger_dist = std::max(0.0, config_.strategy.overtake.dummy_trigger_distance);
   const bool dummy_trigger = opp_ahead && (opp_dist <= dummy_trigger_dist);
   // Use overtake_flag from scenario_director for unified overtake state management
   const bool overtake_active = overtake_flag;
+
+  // Slipstream detection (직선에서 상대 바로 뒤에 있을 때)
+  const bool in_slipstream = opp_ahead &&
+                             forward_to_opp <= config_.strategy.overtake.slipstream_distance &&
+                             std::abs(lateral_to_opp) < 2.0;
+
+  // 추월 방향 결정 (상대의 반대편으로)
+  const int overtake_side = (lateral_to_opp > 0.0) ? -1 : 1;  // 상대가 오른쪽이면 왼쪽으로 추월
 
   // Dummy (feint) state update
   if (!dummy_trigger) {
@@ -751,6 +768,16 @@ PlanResult LocalPathPlanner::plan(
           v *= slow_scale[i];
         }
 
+        // Phase-based speed adjustments
+        if (phase_approach && in_slipstream) {
+          // 접근 단계 + 슬립스트림: 속도 부스트
+          v *= config_.strategy.overtake.slipstream_speed_boost;
+        }
+        if (phase_position || phase_execute) {
+          // 위치 선점/실행 단계: 공격적 속도
+          v *= config_.strategy.overtake.execute_speed_boost;
+        }
+
         if (overtake_active && has_overtake_apex) {
           const bool in_late_brake =
               dist_to_overtake_apex[i] >= 0.0 &&
@@ -806,19 +833,72 @@ PlanResult LocalPathPlanner::plan(
         }
       }
 
-      // Strategy biases
-      if (overtake_active) {
-        if (inside_sign != 0 && config_.strategy.overtake.block_pass_offset > 0.0) {
-          const double target = inside_sign * config_.strategy.overtake.block_pass_offset;
-          R -= config_.weights.w_overtake * 0.2 * std::abs(lat - target);
+      // ============================================
+      // Phase-based overtake strategy rewards
+      // ============================================
+      const double gap_scale = config_.strategy.overtake.gap_reward_scale;
+      const double target_offset = config_.strategy.overtake.position_lateral_offset;
+      const int lat_sign = (lat > 0.1) ? 1 : ((lat < -0.1) ? -1 : 0);
+
+      if (phase_approach) {
+        // 접근 단계: 슬립스트림 위치 유지 (중앙), 추월 방향 준비
+        if (in_slipstream && std::abs(lat) < 1.0) {
+          R += gap_scale * 0.5;  // 슬립스트림 보너스
         }
-        if (chicane_detected && outside_sign != 0 && lat * outside_sign > 0.1) {
-          R += config_.weights.w_overtake * 0.5;
+        // 추월 방향으로 약간 이동 유도
+        if (lat_sign == overtake_side) {
+          R += gap_scale * 0.3;
         }
       }
+
+      if (phase_position) {
+        // 위치 선점 단계: 상대 옆으로 적극적으로 이동
+        const double target_lat = overtake_side * target_offset;
+        const double dist_to_target = std::abs(lat - target_lat);
+        R -= gap_scale * dist_to_target;  // 목표 위치에 가까울수록 보상
+
+        // 목표 사이드에 있으면 보너스
+        if (lat_sign == overtake_side) {
+          R += gap_scale * 1.5;
+        }
+      }
+
+      if (phase_execute) {
+        // 실행 단계: 나란히 또는 앞서가기
+        const double target_lat = overtake_side * target_offset;
+        const double dist_to_target = std::abs(lat - target_lat);
+        R -= gap_scale * 0.5 * dist_to_target;
+
+        // 상대 옆에 나란히 있으면 큰 보너스
+        if (opp_beside && lat_sign == overtake_side) {
+          R += gap_scale * 2.0;
+        }
+
+        // 앞으로 나가는 것에 추가 보상
+        R += config_.weights.w_overtake * 1.5;
+      }
+
+      if (phase_complete) {
+        // 완료 단계: 안전하게 앞으로 복귀
+        // 레이싱 라인(중앙)으로 부드럽게 복귀 유도
+        R -= gap_scale * 0.3 * std::abs(lat);
+      }
+
+      // 기존 코너 전략 (코너가 있을 때만)
+      if (overtake_active && has_overtake_apex) {
+        if (inside_sign != 0 && config_.strategy.overtake.block_pass_offset > 0.0) {
+          const double target = inside_sign * config_.strategy.overtake.block_pass_offset;
+          R -= config_.weights.w_overtake * 0.5 * std::abs(lat - target);
+        }
+        if (chicane_detected && outside_sign != 0 && lat * outside_sign > 0.1) {
+          R += config_.weights.w_overtake * 1.0;
+        }
+      }
+
+      // Dummy (feint) strategy
       if (dummy_active_ && dummy_pref_sign != 0) {
         const double dummy_target = dummy_pref_sign * config_.strategy.overtake.dummy_offset;
-        R -= config_.weights.w_overtake * 0.15 * std::abs(lat - dummy_target);
+        R -= config_.weights.w_overtake * 0.3 * std::abs(lat - dummy_target);
       }
 
       debug_results.push_back({R, lat, sc});
