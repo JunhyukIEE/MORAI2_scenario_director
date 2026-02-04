@@ -90,6 +90,9 @@ struct LocalPlannerConfig {
   // Hysteresis: penalty for changing lateral offset direction
   double lat_change_penalty = 15.0;  // Penalty per meter of offset change
 
+  // Side commitment during overtake: extra penalty for switching sides
+  double overtake_side_commit_penalty = 3000.0;  // Penalty for switching sides during overtake
+
   StrategyConfig strategy;
 };
 
@@ -237,6 +240,10 @@ private:
   // Hysteresis state
   double prev_lat_offset_ = 0.0;
   bool has_prev_offset_ = false;
+
+  // Side commitment during overtake
+  int committed_side_ = 0;  // -1: left, 0: none, +1: right
+  bool was_overtaking_ = false;
 
   // Dummy (feint) state
   bool dummy_active_ = false;

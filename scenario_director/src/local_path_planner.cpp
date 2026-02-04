@@ -166,8 +166,26 @@ void ReferenceLine::getShiftedLine(const std::vector<int>& indices, double offse
 
   for (size_t i = 0; i < M; ++i) {
     int idx = indices[i];
-    double nx = -std::sin(yaw_[idx]);
-    double ny = std::cos(yaw_[idx]);
+
+    // Compute tangent direction from adjacent points (more robust than stored yaw)
+    int idx_prev = (idx == 0) ? (loop_ ? static_cast<int>(N_) - 1 : 0) : idx - 1;
+    int idx_next = (idx == static_cast<int>(N_) - 1) ? (loop_ ? 0 : idx) : idx + 1;
+
+    double dx = x_[idx_next] - x_[idx_prev];
+    double dy = y_[idx_next] - y_[idx_prev];
+    double len = std::hypot(dx, dy);
+
+    double nx, ny;
+    if (len > 1e-6) {
+      // Normal is perpendicular to tangent (rotate 90 degrees CCW)
+      nx = -dy / len;
+      ny = dx / len;
+    } else {
+      // Fallback to stored yaw if points are too close
+      nx = -std::sin(yaw_[idx]);
+      ny = std::cos(yaw_[idx]);
+    }
+
     out_x[i] = x_[idx] + offset_m * nx;
     out_y[i] = y_[idx] + offset_m * ny;
   }
@@ -779,6 +797,15 @@ PlanResult LocalPathPlanner::plan(
         }
       }
 
+      // Side commitment during overtake: strongly penalize switching sides
+      if (overtake_active && committed_side_ != 0) {
+        const int lat_sign = (lat > 0.1) ? 1 : ((lat < -0.1) ? -1 : 0);
+        if (lat_sign != 0 && lat_sign != committed_side_) {
+          // Trying to switch to the opposite side during overtake
+          R -= config_.overtake_side_commit_penalty;
+        }
+      }
+
       // Strategy biases
       if (overtake_active) {
         if (inside_sign != 0 && config_.strategy.overtake.block_pass_offset > 0.0) {
@@ -822,6 +849,25 @@ PlanResult LocalPathPlanner::plan(
   // Update hysteresis state
   prev_lat_offset_ = best.lat_offset;
   has_prev_offset_ = true;
+
+  // Update side commitment state
+  if (overtake_active) {
+    if (!was_overtaking_) {
+      // Overtake just started: commit to the chosen side
+      if (best.lat_offset > 0.1) {
+        committed_side_ = 1;
+      } else if (best.lat_offset < -0.1) {
+        committed_side_ = -1;
+      }
+    }
+    was_overtaking_ = true;
+  } else {
+    // Overtake ended: reset commitment
+    if (was_overtaking_) {
+      committed_side_ = 0;
+    }
+    was_overtaking_ = false;
+  }
 
   return best;
 }

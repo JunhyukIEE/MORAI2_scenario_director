@@ -44,7 +44,8 @@ local_path_planner:
     near_pass_bonus_dist: 0.0       # 근접 보너스
 
     # Hysteresis (방향 변경 페널티 - 갈팡질팡 방지)
-    lat_change_penalty: 500.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)
+    lat_change_penalty: 800.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)
+    overtake_side_commit_penalty: 5000.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
 
     # Slow In, Fast Out 전략
     strategy.slow_in_out.enabled: true

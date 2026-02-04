@@ -63,6 +63,7 @@ public:
     declare_parameter<double>("overtake_margin_s", 6.0);
     declare_parameter<double>("near_pass_bonus_dist", 3.0);
     declare_parameter<double>("lat_change_penalty", 15.0);
+    declare_parameter<double>("overtake_side_commit_penalty", 3000.0);
 
     // Slow In, Fast Out strategy
     declare_parameter<bool>("strategy.slow_in_out.enabled", true);
@@ -139,6 +140,7 @@ public:
     config.overtake_margin_s = get_parameter("overtake_margin_s").as_double();
     config.near_pass_bonus_dist = get_parameter("near_pass_bonus_dist").as_double();
     config.lat_change_penalty = get_parameter("lat_change_penalty").as_double();
+    config.overtake_side_commit_penalty = get_parameter("overtake_side_commit_penalty").as_double();
 
     config.strategy.slow_in_out.enabled = get_parameter("strategy.slow_in_out.enabled").as_bool();
     config.strategy.slow_in_out.apex_search_distance =
