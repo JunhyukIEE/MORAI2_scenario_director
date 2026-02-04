@@ -60,6 +60,7 @@ public:
     declare_parameter<int>("offroad_check_stride", 2);
     declare_parameter<double>("overtake_margin_s", 6.0);
     declare_parameter<double>("near_pass_bonus_dist", 3.0);
+    declare_parameter<double>("lat_change_penalty", 15.0);
 
     // Load paths
     const std::string share = ament_index_cpp::get_package_share_directory("scenario_director");
@@ -109,6 +110,7 @@ public:
     config.offroad_check_stride = get_parameter("offroad_check_stride").as_int();
     config.overtake_margin_s = get_parameter("overtake_margin_s").as_double();
     config.near_pass_bonus_dist = get_parameter("near_pass_bonus_dist").as_double();
+    config.lat_change_penalty = get_parameter("lat_change_penalty").as_double();
 
     // Initialize planner
     planner_ = std::make_shared<LocalPathPlanner>(
@@ -194,21 +196,33 @@ private:
     // Run planner
     auto result = planner_->plan(ego_x, ego_y, ego_yaw, ego_v, opp_x, opp_y, opp_v);
 
-    // Publish planned trajectory as Path
+    // Publish candidate path as the planned path (no curling at end)
     nav_msgs::msg::Path path_msg;
     path_msg.header.stamp = now();
     path_msg.header.frame_id = "map";
 
-    for (const auto& pt : result.trajectory) {
+    for (size_t i = 0; i < result.candidate_path.size(); ++i) {
+      const auto& [px, py] = result.candidate_path[i];
       geometry_msgs::msg::PoseStamped pose;
       pose.header = path_msg.header;
-      pose.pose.position.x = pt.x;
-      pose.pose.position.y = pt.y;
+      pose.pose.position.x = px;
+      pose.pose.position.y = py;
       pose.pose.position.z = 0.0;
 
-      // Convert yaw to quaternion
-      double cy = std::cos(pt.yaw * 0.5);
-      double sy = std::sin(pt.yaw * 0.5);
+      // Compute yaw from consecutive points
+      double yaw = 0.0;
+      if (i + 1 < result.candidate_path.size()) {
+        double dx = result.candidate_path[i + 1].first - px;
+        double dy = result.candidate_path[i + 1].second - py;
+        yaw = std::atan2(dy, dx);
+      } else if (i > 0) {
+        double dx = px - result.candidate_path[i - 1].first;
+        double dy = py - result.candidate_path[i - 1].second;
+        yaw = std::atan2(dy, dx);
+      }
+
+      double cy = std::cos(yaw * 0.5);
+      double sy = std::sin(yaw * 0.5);
       pose.pose.orientation.x = 0.0;
       pose.pose.orientation.y = 0.0;
       pose.pose.orientation.z = sy;

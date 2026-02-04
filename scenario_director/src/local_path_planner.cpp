@@ -342,7 +342,7 @@ std::vector<TrajectoryPoint> LocalPathPlanner::rolloutFollowPath(
     return min_idx;
   };
 
-  // Lookahead target helper
+  // Lookahead target helper (with extrapolation at path end)
   auto lookaheadTarget = [&](size_t idx0, double Ld) -> std::pair<double, double> {
     double acc = 0.0;
     size_t i = idx0;
@@ -352,6 +352,23 @@ std::vector<TrajectoryPoint> LocalPathPlanner::rolloutFollowPath(
       acc += std::hypot(dx, dy);
       ++i;
     }
+
+    // If reached end of path, extrapolate in the direction of last segment
+    if (i >= M - 1 && M >= 2) {
+      double last_dx = path_x[M - 1] - path_x[M - 2];
+      double last_dy = path_y[M - 1] - path_y[M - 2];
+      double seg_len = std::hypot(last_dx, last_dy);
+      if (seg_len > 1e-6) {
+        double remaining = Ld - acc;
+        if (remaining > 0) {
+          double ext_x = path_x[M - 1] + (last_dx / seg_len) * remaining;
+          double ext_y = path_y[M - 1] + (last_dy / seg_len) * remaining;
+          return {ext_x, ext_y};
+        }
+      }
+      return {path_x[M - 1], path_y[M - 1]};
+    }
+
     i = std::min(i, M - 1);
     return {path_x[i], path_y[i]};
   };
@@ -561,6 +578,17 @@ PlanResult LocalPathPlanner::plan(
       double R = computeReward(traj, cand_kappa, lat,
                                opp_future_x, opp_future_y, opp_future_yaw);
 
+      // Apply hysteresis: penalize changing lateral offset direction
+      if (has_prev_offset_) {
+        double offset_change = std::abs(lat - prev_lat_offset_);
+        R -= config_.lat_change_penalty * offset_change;
+
+        // Extra penalty for crossing center (changing sides)
+        if ((lat > 0.0 && prev_lat_offset_ < 0.0) || (lat < 0.0 && prev_lat_offset_ > 0.0)) {
+          R -= config_.lat_change_penalty * 2.0;  // Additional penalty for side change
+        }
+      }
+
       debug_results.push_back({R, lat, sc});
 
       if (R > best.reward) {
@@ -585,6 +613,10 @@ PlanResult LocalPathPlanner::plan(
   for (size_t i = 0; i < std::min(debug_results.size(), size_t(12)); ++i) {
     best.debug_top.push_back(debug_results[i]);
   }
+
+  // Update hysteresis state
+  prev_lat_offset_ = best.lat_offset;
+  has_prev_offset_ = true;
 
   return best;
 }

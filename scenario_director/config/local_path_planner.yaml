@@ -16,29 +16,32 @@ local_path_planner:
     weights.w_progress: 8.0         # Track progress reward
     weights.w_speed: 1.5            # Speed reward
     weights.w_overtake: 60.0        # Overtake reward
-    weights.w_collision: 20000.0    # Collision penalty
+    weights.w_collision: 30000.0    # Collision penalty (증가: 20000 -> 30000)
     weights.w_offroad: 4000.0       # Offroad penalty
     weights.w_smooth: 8.0           # Smoothness penalty
     weights.w_curv: 2.0             # Curvature penalty
     weights.w_far_from_ref: 2.0     # Distance from reference line penalty
 
-    # Vehicle dimensions
-    ego_length: 4.0
-    ego_width: 1.7
-    opp_length: 4.0
-    opp_width: 1.7
+    # Vehicle dimensions (안전 마진 추가)
+    ego_length: 5.0                 # 4.0 -> 5.0 (여유 추가)
+    ego_width: 2.2                  # 1.7 -> 2.2 (여유 추가)
+    opp_length: 5.0                 # 4.0 -> 5.0
+    opp_width: 2.2                  # 1.7 -> 2.2
 
     # Planning settings
     dt: 0.1                         # Time step (seconds)
-    horizon_s: 4.0                  # Planning horizon (seconds)
-    path_ahead_m: 70.0              # Path lookahead distance (meters)
+    horizon_s: 5.0                  # Planning horizon (4.0 -> 5.0, 더 멀리 예측)
+    path_ahead_m: 80.0              # Path lookahead distance (70 -> 80)
     planning_rate_hz: 10.0          # Planning frequency (Hz)
 
-    # Candidate generation
-    lateral_offsets: [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
-    speed_scales: [0.85, 1.0, 1.10, 1.20]
+    # Candidate generation (더 넓은 측면 오프셋)
+    lateral_offsets: [-3.0, -2.5, -2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0, 2.5, 3.0]
+    speed_scales: [0.80, 0.90, 1.0, 1.10]
 
     # Safety settings
     offroad_check_stride: 2         # Check every N-th point for offroad
-    overtake_margin_s: 6.0          # Distance ahead to consider overtake complete
-    near_pass_bonus_dist: 3.0       # Distance for near-pass bonus
+    overtake_margin_s: 10.0         # Distance ahead to consider overtake complete (6 -> 10)
+    near_pass_bonus_dist: 0.0       # 근접 보너스 비활성화 (3.0 -> 0.0)
+
+    # Hysteresis (방향 변경 페널티 - 갈팡질팡 방지)
+    lat_change_penalty: 20.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)

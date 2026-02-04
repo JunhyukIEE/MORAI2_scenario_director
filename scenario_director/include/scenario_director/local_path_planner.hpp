@@ -50,6 +50,9 @@ struct LocalPlannerConfig {
   int offroad_check_stride = 2;
   double overtake_margin_s = 6.0;
   double near_pass_bonus_dist = 3.0;
+
+  // Hysteresis: penalty for changing lateral offset direction
+  double lat_change_penalty = 15.0;  // Penalty per meter of offset change
 };
 
 // -----------------------------
@@ -191,6 +194,10 @@ private:
   std::shared_ptr<OpponentPredictor> opp_pred_;
 
   int T_;  // number of timesteps in horizon
+
+  // Hysteresis state
+  double prev_lat_offset_ = 0.0;
+  bool has_prev_offset_ = false;
 };
 
 }  // namespace scenario_director
