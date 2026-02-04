@@ -10,7 +10,6 @@ def generate_launch_description():
     visualizer_share = get_package_share_directory('morai_visualizer')
     ego_params = [f"{share}/config/scenario_director.yaml"]
     npc_params = [f"{share}/config/npc_controller.yaml"]
-    local_planner_params = [f"{share}/config/local_path_planner.yaml"]
 
     return LaunchDescription([
         IncludeLaunchDescription(
@@ -21,13 +20,6 @@ def generate_launch_description():
                 'odom_topic': '/ego/odom',
                 'opponent_odom_topic': '/opponent/odom',
             }.items(),
-        ),
-        Node(
-            package='scenario_director',
-            executable='local_path_planner_node',
-            name='local_path_planner',
-            parameters=local_planner_params,
-            output='screen'
         ),
         Node(
             package='scenario_director',
