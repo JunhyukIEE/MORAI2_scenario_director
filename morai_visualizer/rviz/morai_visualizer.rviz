@@ -59,6 +59,90 @@ Visualization Manager:
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
+      Color: 255; 0; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planned_path
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.05
+      Name: PredictedPath
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.05
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_planner/predicted_path
+      Value: true
+    - Alpha: 0.6
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 255; 100; 255
+      Enabled: true
+      Head Diameter: 0.15000000596046448
+      Head Length: 0.10000000149011612
+      Length: 0.10000000149011612
+      Line Style: Lines
+      Line Width: 0.03
+      Name: CandidatePath
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.02
+      Pose Color: 255; 100; 255
+      Pose Style: None
+      Radius: 0.019999999552965164
+      Shaft Diameter: 0.05000000074505806
+      Shaft Length: 0.05000000074505806
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_planner/candidate_path
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
       Color: 255; 200; 0
       Enabled: true
       Head Diameter: 0.15000000596046448
@@ -84,33 +168,17 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /waypoints_path
       Value: true
-    - Alpha: 1
-      Buffer Length: 1
-      Class: rviz_default_plugins/Path
-      Color: 0; 255; 100
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Head Diameter: 0.30000001192092896
-      Head Length: 0.20000000298023224
-      Length: 0.30000001192092896
-      Line Style: Lines
-      Line Width: 0.05
-      Name: RacingPlan
-      Offset:
-        X: 0
-        Y: 0
-        Z: 0.1
-      Pose Color: 255; 85; 255
-      Pose Style: None
-      Radius: 0.029999999329447746
-      Shaft Diameter: 0.10000000149011612
-      Shaft Length: 0.10000000149011612
+      Name: MarkerArray
+      Namespaces:
+        candidate_paths: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
-        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /racing_director/planned_path
+        Value: /candidate_paths
       Value: true
   Enabled: true
   Global Options:

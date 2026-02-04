@@ -1,78 +1,22 @@
 scenario_director:
   ros__parameters:
-    map.map_dir: "map"
-    map.map_yaml: "Sangam_map.yaml"
     map.waypoints: "map/waypoints.csv"
+    waypoints.default_speed: 5.0
 
-    lines.optimal_path: ""  # empty = use map/waypoints
-    lines.inside_offset: -1.5
-    lines.outside_offset: 1.5
-
-    vehicle.wheelbase: 2.7
-    vehicle.width: 1.8
-    vehicle.max_steering: 0.55
-    vehicle.speed_multiplier: 1.15
-
-    selector.overtake_distance: 15.0
-    selector.overtake_angle: 30.0
-    selector.min_overtake_speed_diff: 3.0
-    selector.complete_distance: 10.0
-    selector.complete_angle: 150.0
-    selector.safe_distance: 20.0
-    selector.min_safe_gap: 5.0
-    selector.ttc_threshold: 2.0
-    selector.rear_danger_angle: 120.0
-
-    # Slow In, Fast Out 전략
-    strategy.slow_in_out.enabled: true
-    strategy.slow_in_out.apex_search_distance: 25.0
-    strategy.slow_in_out.entry_distance: 12.0
-    strategy.slow_in_out.exit_distance: 12.0
-    strategy.slow_in_out.entry_speed_scale: 0.85
-    strategy.slow_in_out.exit_speed_scale: 1.05
-    strategy.slow_in_out.curvature_threshold: 0.08
-    strategy.slow_in_out.aggressive_exit: true
-    strategy.slow_in_out.overtake_exit_speed_scale: 1.15
-    strategy.slow_in_out.overtake_entry_speed_scale: 0.80
-
-    # 추월 전략 설정
-    # Late Braking: 코너 직전 늦은 브레이킹으로 인사이드 블록 패스
-    strategy.overtake.late_brake_distance: 8.0
-    strategy.overtake.late_brake_speed_scale: 0.75
-    strategy.overtake.block_pass_offset: 2.5
-
-    # Dummy (페인트): 한쪽으로 움직이는 척하다 반대편으로 추월
-    strategy.overtake.dummy_trigger_distance: 20.0
-    strategy.overtake.dummy_offset: 1.5
-    strategy.overtake.dummy_duration: 0.5
-    strategy.overtake.dummy_switch_threshold: 0.8
-
-    # Around the Outside: 바깥쪽으로 추월 (S자 코너에서 효과적)
-    strategy.overtake.outside_entry_speed_scale: 0.9
-    strategy.overtake.outside_exit_boost: 1.15
-    strategy.overtake.chicane_detection_dist: 40.0
-
-    # 공통 설정
-    strategy.overtake.min_corner_curvature: 0.05
-    strategy.overtake.apex_search_distance: 50.0
+    vehicle.wheelbase: 2.35
+    vehicle.max_steering: 0.436
 
     pure_pursuit.lookahead_distance: 28.0
     pure_pursuit.min_lookahead: 4.0
     pure_pursuit.max_lookahead: 15.0
     pure_pursuit.lookahead_ratio: 0.3
-    pure_pursuit.steering_scale: 0.743689187
+    pure_pursuit.steering_scale: 0.74689187
 
     overtake.trigger_distance: 20.0
-    overtake.complete_distance: 8.0
-    overtake.side_offset: 1.5
-    overtake.dummy_offset: 0.8
-    overtake.dummy_duration: 0.6
-    overtake.entry_speed_scale: 0.85
-    overtake.exit_speed_scale: 1.10
-    overtake.late_brake_distance: 6.0
-    overtake.late_brake_fast_scale: 1.05
-    overtake.late_brake_slow_scale: 0.85
-    overtake.outside_enabled: true
+    overtake.complete_distance: 15.0
+
+    local_path.topic: "/local_planner/path"
+    local_speed.topic: "/local_planner/path_speeds"
 
     control.loop_hz: 100.0
     control.throttle_kp: 0.1
