@@ -56,6 +56,10 @@ struct OvertakeStrategyConfig {
   double slipstream_distance = 8.0;         // 슬립스트림 효과 거리
   double slipstream_speed_boost = 1.08;     // 슬립스트림 속도 부스트
   double gap_reward_scale = 200.0;          // 갭 찾기 보상 스케일
+
+  // 동적 회피 경로 설정
+  double avoidance_path_smoothness = 2.0;   // 경로 부드러움 (1.0~3.0)
+  std::vector<double> avoidance_offsets = {2.0, 2.5, 3.0, 3.5};  // 회피 offset 후보
 };
 
 struct StrategyConfig {
@@ -163,6 +167,19 @@ public:
                           double outside_offset, double inside_offset,
                           double sharpness, double exit_distance,
                           std::vector<double>& out_x, std::vector<double>& out_y) const;
+
+  // 상대 차량 회피 경로 생성
+  // opp_idx: 상대 차량 위치의 인덱스 (indices 내 상대 인덱스)
+  // pass_side: 통과 방향 (+1: 오른쪽, -1: 왼쪽)
+  // pass_offset: 통과 시 lateral offset (m)
+  // entry_distance: 회피 시작 거리 (상대 앞 몇 m에서 시작)
+  // exit_distance: 회피 종료 거리 (상대 뒤 몇 m에서 복귀)
+  // smoothness: 전환 부드러움 (높을수록 부드러움, 1.0~3.0)
+  void getAvoidancePath(const std::vector<int>& indices,
+                        size_t opp_idx, int pass_side, double pass_offset,
+                        double entry_distance, double exit_distance,
+                        double smoothness,
+                        std::vector<double>& out_x, std::vector<double>& out_y) const;
 
   // Direct access
   const std::vector<double>& x() const { return x_; }

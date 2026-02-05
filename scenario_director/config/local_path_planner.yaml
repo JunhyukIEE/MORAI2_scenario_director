@@ -74,3 +74,8 @@ local_path_planner:
     strategy.overtake.slipstream_distance: 10.0       # 슬립스트림 효과 거리 (m)
     strategy.overtake.slipstream_speed_boost: 1.06    # 슬립스트림 속도 부스트
     strategy.overtake.gap_reward_scale: 300.0         # 갭 찾기 보상 스케일 (높을수록 적극적)
+
+    # 동적 회피 경로 설정 (상대 차량 기반)
+    # entry/exit 거리는 scenario_director.yaml의 overtake 파라미터 사용
+    strategy.overtake.avoidance_path_smoothness: 2.0  # 경로 부드러움 (1.0~3.0)
+    strategy.overtake.avoidance_offsets: [2.0, 2.5, 3.0, 3.5]  # 회피 offset 후보 (m)

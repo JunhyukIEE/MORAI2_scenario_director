@@ -104,6 +104,11 @@ public:
     declare_parameter<double>("strategy.overtake.slipstream_speed_boost", 1.08);
     declare_parameter<double>("strategy.overtake.gap_reward_scale", 200.0);
 
+    // Dynamic avoidance path
+    declare_parameter<double>("strategy.overtake.avoidance_path_smoothness", 2.0);
+    declare_parameter<std::vector<double>>("strategy.overtake.avoidance_offsets",
+                                            std::vector<double>{2.0, 2.5, 3.0, 3.5});
+
     // Load paths
     const std::string share = ament_index_cpp::get_package_share_directory("scenario_director");
     const std::string map_dir_rel = get_parameter("map.map_dir").as_string();
@@ -193,6 +198,12 @@ public:
         get_parameter("strategy.overtake.slipstream_speed_boost").as_double();
     config.strategy.overtake.gap_reward_scale =
         get_parameter("strategy.overtake.gap_reward_scale").as_double();
+
+    // Dynamic avoidance path config
+    config.strategy.overtake.avoidance_path_smoothness =
+        get_parameter("strategy.overtake.avoidance_path_smoothness").as_double();
+    config.strategy.overtake.avoidance_offsets =
+        get_parameter("strategy.overtake.avoidance_offsets").as_double_array();
 
     // Initialize planner
     planner_ = std::make_shared<LocalPathPlanner>(

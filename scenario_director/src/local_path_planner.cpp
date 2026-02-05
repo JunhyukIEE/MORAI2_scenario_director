@@ -275,6 +275,117 @@ void ReferenceLine::getLateBrakingLine(const std::vector<int>& indices,
   }
 }
 
+void ReferenceLine::getAvoidancePath(const std::vector<int>& indices,
+                                      size_t opp_idx, int pass_side, double pass_offset,
+                                      double entry_distance, double exit_distance,
+                                      double smoothness,
+                                      std::vector<double>& out_x, std::vector<double>& out_y) const {
+  size_t M = indices.size();
+  out_x.resize(M);
+  out_y.resize(M);
+
+  if (M == 0 || opp_idx >= M) {
+    return;
+  }
+
+  // pass_side: +1 = 오른쪽으로 회피, -1 = 왼쪽으로 회피
+  const double target_offset = pass_side * pass_offset;
+
+  // 상대 차량 위치 기준으로 entry/exit 인덱스 계산
+  // entry: 상대 앞 entry_distance 지점
+  // exit: 상대 뒤 exit_distance 지점
+  size_t entry_idx = 0;
+  size_t exit_idx = M - 1;
+
+  // 상대 위치까지의 누적 거리 계산
+  double opp_s = 0.0;
+  for (size_t i = 1; i <= opp_idx && i < M; ++i) {
+    int idx_prev = indices[i - 1];
+    int idx_curr = indices[i];
+    opp_s += std::hypot(x_[idx_curr] - x_[idx_prev], y_[idx_curr] - y_[idx_prev]);
+  }
+
+  // entry 인덱스 찾기 (상대 앞 entry_distance)
+  double entry_s = std::max(0.0, opp_s - entry_distance);
+  double acc_s = 0.0;
+  for (size_t i = 1; i < M; ++i) {
+    int idx_prev = indices[i - 1];
+    int idx_curr = indices[i];
+    acc_s += std::hypot(x_[idx_curr] - x_[idx_prev], y_[idx_curr] - y_[idx_prev]);
+    if (acc_s >= entry_s) {
+      entry_idx = i;
+      break;
+    }
+  }
+
+  // exit 인덱스 찾기 (상대 뒤 exit_distance)
+  double exit_s = opp_s + exit_distance;
+  acc_s = 0.0;
+  for (size_t i = 1; i < M; ++i) {
+    int idx_prev = indices[i - 1];
+    int idx_curr = indices[i];
+    acc_s += std::hypot(x_[idx_curr] - x_[idx_prev], y_[idx_curr] - y_[idx_prev]);
+    if (acc_s >= exit_s) {
+      exit_idx = i;
+      break;
+    }
+  }
+
+  // 안전 검증
+  if (entry_idx >= opp_idx) entry_idx = (opp_idx > 0) ? opp_idx - 1 : 0;
+  if (exit_idx <= opp_idx) exit_idx = std::min(opp_idx + 1, M - 1);
+
+  for (size_t i = 0; i < M; ++i) {
+    int idx = indices[i];
+
+    // 법선 벡터 계산
+    int idx_prev = (idx == 0) ? (loop_ ? static_cast<int>(N_) - 1 : 0) : idx - 1;
+    int idx_next = (idx == static_cast<int>(N_) - 1) ? (loop_ ? 0 : idx) : idx + 1;
+
+    double dx = x_[idx_next] - x_[idx_prev];
+    double dy = y_[idx_next] - y_[idx_prev];
+    double len = std::hypot(dx, dy);
+
+    double nx, ny;
+    if (len > 1e-6) {
+      nx = -dy / len;
+      ny = dx / len;
+    } else {
+      nx = -std::sin(yaw_[idx]);
+      ny = std::cos(yaw_[idx]);
+    }
+
+    // 구간별 offset 계산
+    double offset = 0.0;
+
+    if (i <= entry_idx) {
+      // 진입 전: 레이싱 라인 유지
+      offset = 0.0;
+    } else if (i <= opp_idx) {
+      // 진입 구간: 0 → target_offset (부드러운 전환)
+      double t = static_cast<double>(i - entry_idx) /
+                 static_cast<double>(opp_idx - entry_idx);
+      // Smoothstep 함수 사용 (더 부드러운 전환)
+      double smooth_t = t * t * (3.0 - 2.0 * t);
+      // smoothness 적용
+      smooth_t = std::pow(smooth_t, 1.0 / smoothness);
+      offset = target_offset * smooth_t;
+    } else if (i <= exit_idx) {
+      // 회피 유지 → 복귀 구간
+      double t = static_cast<double>(i - opp_idx) /
+                 static_cast<double>(exit_idx - opp_idx);
+      double smooth_t = t * t * (3.0 - 2.0 * t);
+      offset = target_offset * (1.0 - smooth_t);
+    } else {
+      // 복귀 완료: 레이싱 라인
+      offset = 0.0;
+    }
+
+    out_x[i] = x_[idx] + offset * nx;
+    out_y[i] = y_[idx] + offset * ny;
+  }
+}
+
 // -----------------------------
 // OpponentPredictor implementation
 // -----------------------------
@@ -1131,6 +1242,118 @@ PlanResult LocalPathPlanner::plan(
           best.candidate_path.emplace_back(cand_x[i], cand_y[i]);
         }
         best.v_desired = std::move(v_des);
+      }
+    }
+  }
+
+  // ============================================
+  // 동적 회피 경로 후보 생성 (상대 차량 위치 기반)
+  // ============================================
+  if (opp_ahead && forward_to_opp < 50.0) {
+    // 상대 차량의 reference line 상 인덱스 찾기
+    int opp_ref_idx = ref_->nearestIndex(opp_x, opp_y);
+
+    // idxs 배열 내에서 상대 위치에 해당하는 인덱스 찾기
+    size_t opp_local_idx = 0;
+    for (size_t i = 0; i < idxs.size(); ++i) {
+      if (idxs[i] >= opp_ref_idx) {
+        opp_local_idx = i;
+        break;
+      }
+    }
+
+    // 양쪽 방향으로 회피 경로 생성
+    const auto& avoid_cfg = config_.strategy.overtake;
+    std::vector<int> pass_sides = {-1, 1};  // 왼쪽, 오른쪽
+
+    // forward_to_opp 기반으로 entry/exit 거리 결정
+    // entry: 현재 상대까지 거리 (즉시 회피 시작)
+    // exit: 상대 통과 후 복귀 거리 (고정값 또는 속도 비례)
+    const double entry_dist = forward_to_opp;  // 상대까지 거리만큼 진입 구간
+    const double exit_dist = std::max(8.0, ego_v * 0.5);  // 최소 8m 또는 속도의 절반
+
+    for (int pass_side : pass_sides) {
+      // 통과 가능 여부 체크
+      bool can_pass = (pass_side > 0) ? passability.right_passable : passability.left_passable;
+
+      // 통과 불가능해도 후보로는 생성 (페널티로 처리)
+      for (double avoid_offset : avoid_cfg.avoidance_offsets) {
+        std::vector<double> avoid_x, avoid_y;
+        ref_->getAvoidancePath(idxs, opp_local_idx, pass_side, avoid_offset,
+                                entry_dist, exit_dist,
+                                avoid_cfg.avoidance_path_smoothness,
+                                avoid_x, avoid_y);
+
+        if (avoid_x.empty()) continue;
+
+        // Compute curvature
+        std::vector<double> avoid_kappa = computeCurvature(avoid_x, avoid_y);
+
+        // 속도 프로파일: execute_speed_boost 적용
+        std::vector<double> v_des(idxs.size());
+        for (size_t i = 0; i < idxs.size(); ++i) {
+          double v = base_v[i];
+          if (overtake_active) {
+            v *= avoid_cfg.execute_speed_boost;
+          }
+          v_des[i] = std::min(v, v_cap[i]);
+        }
+
+        // Rollout
+        std::vector<TrajectoryPoint> traj = rolloutFollowPath(
+            ego_x, ego_y, ego_yaw, ego_v, avoid_x, avoid_y, v_des);
+
+        // Compute reward
+        double R = computeReward(traj, avoid_kappa, pass_side * avoid_offset,
+                                 opp_future_x, opp_future_y, opp_future_yaw);
+
+        // 통과 불가능하면 페널티
+        if (!can_pass) {
+          R -= config_.impassable_penalty;
+        }
+
+        // 회피 경로 보너스 (상대가 가까울수록)
+        double proximity_bonus = std::max(0.0, 30.0 - forward_to_opp) * 10.0;
+        R += proximity_bonus;
+
+        // 추월 활성화 시 추가 보너스
+        if (overtake_active) {
+          R += config_.weights.w_overtake * 2.0;
+
+          // 추월 방향과 일치하면 보너스
+          if (pass_side == overtake_side) {
+            R += config_.strategy.overtake.gap_reward_scale;
+          }
+        }
+
+        // Hysteresis (회피 경로는 감소된 페널티)
+        if (has_prev_offset_) {
+          double offset_change = std::abs(pass_side * avoid_offset - prev_lat_offset_);
+          R -= config_.lat_change_penalty * offset_change * 0.2;
+        }
+
+        // 후보 경로 저장
+        PlanResult::DebugCandidate debug_cand;
+        debug_cand.reward = R;
+        debug_cand.lat_offset = pass_side * avoid_offset;
+        debug_cand.speed_scale = 1.0;
+        debug_cand.is_late_braking = false;  // 회피 경로
+        for (size_t i = 0; i < avoid_x.size(); ++i) {
+          debug_cand.path.emplace_back(avoid_x[i], avoid_y[i]);
+        }
+        debug_results.push_back(debug_cand);
+
+        if (R > best.reward) {
+          best.reward = R;
+          best.lat_offset = pass_side * avoid_offset;
+          best.speed_scale = 1.0;
+          best.trajectory = std::move(traj);
+          best.candidate_path.clear();
+          for (size_t i = 0; i < avoid_x.size(); ++i) {
+            best.candidate_path.emplace_back(avoid_x[i], avoid_y[i]);
+          }
+          best.v_desired = std::move(v_des);
+        }
       }
     }
   }
