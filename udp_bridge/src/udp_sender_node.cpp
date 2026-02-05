@@ -102,8 +102,12 @@ private:
     std::memcpy(payload + 8, &brake, sizeof(double));
     std::memcpy(payload + 16, &steering_deg, sizeof(double));
 
-    sendto(socket_fd_, payload, sizeof(payload), 0,
+    ssize_t sent = sendto(socket_fd_, payload, sizeof(payload), 0,
            reinterpret_cast<sockaddr*>(&ego_send_addr_), sizeof(ego_send_addr_));
+
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 1000,
+                          "Ego cmd sent: throttle=%.2f, brake=%.2f, steer=%.2f, bytes=%zd",
+                          throttle, brake, steering_deg, sent);
   }
 
   void npcCmdCallback(const scenario_director::msg::VehicleCmd::SharedPtr msg, int npc_index) {

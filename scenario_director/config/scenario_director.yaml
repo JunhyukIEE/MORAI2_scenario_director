@@ -17,7 +17,7 @@ scenario_director:
     local_path.topic: "/local_planner/path"
     local_speed.topic: "/local_planner/path_speeds"
 
-    control.loop_hz: 100.0
+    control.loop_hz: 60.0
     control.throttle_kp: 0.1
     control.brake_kp: 0.1
     control.max_throttle: 1.0

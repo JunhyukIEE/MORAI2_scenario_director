@@ -5,9 +5,19 @@ npc_controller:
     # NPC ID (1-9, launch file에서 오버라이드)
     npc.id: 1
 
-    # NPC 속도 설정
-    npc.speed_ratio: 0.5            # 기본 속도 배율 (waypoint 속도 대비)
-    npc.min_speed_ratio: 0.2        # 최소 속도 배율
+    # NPC별 속도 설정 (waypoint 속도 대비 배율)
+    # NPC_1이 가장 느리고, NPC_9가 가장 빠름
+    npc.speed_ratio.npc_1: 1.0
+    npc.speed_ratio.npc_2: 0.88
+    npc.speed_ratio.npc_3: 0.91
+    npc.speed_ratio.npc_4: 0.94
+    npc.speed_ratio.npc_5: 0.97
+    npc.speed_ratio.npc_6: 1.00
+    npc.speed_ratio.npc_7: 1.03
+    npc.speed_ratio.npc_8: 1.06
+    npc.speed_ratio.npc_9: 1.10
+
+    npc.min_speed_ratio: 0.8        # 최소 속도 배율
     npc.max_speed_ratio: 1.0        # 최대 속도 배율
 
     vehicle.wheelbase: 2.7

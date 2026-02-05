@@ -3,7 +3,7 @@ udp_receiver:
     udp.recv_ip: "169.254.58.1"
     udp.ego_recv_port: 9090
 
-    # NPC receive ports (vehicle_info): 9X90 where X = NPC number (1-9)
+    # NPC receive ports (vehicle_info)
     udp.npc1_recv_port: 9190
     udp.npc2_recv_port: 9290
     udp.npc3_recv_port: 9390
@@ -19,7 +19,7 @@ udp_sender:
     udp.send_ip: "169.254.58.138"
     udp.ego_send_port: 9091
 
-    # NPC send ports (ctrl_cmd): 9X91 where X = NPC number (1-9)
+    # NPC send ports (ctrl_cmd)
     udp.npc1_send_port: 9191
     udp.npc2_send_port: 9291
     udp.npc3_send_port: 9391

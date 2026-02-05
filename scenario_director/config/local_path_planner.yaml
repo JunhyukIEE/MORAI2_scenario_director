@@ -16,8 +16,8 @@ local_path_planner:
     weights.w_progress: 80.0        # Track progress reward
     weights.w_speed: 1500.0         # Speed reward
     weights.w_overtake: 60.0        # Overtake reward
-    weights.w_collision: 90000.0    # Collision penalty
-    weights.w_offroad: 5000.0       # Offroad penalty
+    weights.w_collision: 100000.0    # Collision penalty
+    weights.w_offroad: 15000.0       # Offroad penalty
     weights.w_smooth: 80.0           # Smoothness penalty
     weights.w_curv: 2.0             # Curvature penalty
     weights.w_far_from_ref: 0.0     # Distance from reference line penalty
@@ -31,7 +31,7 @@ local_path_planner:
     # Planning settings
     dt: 0.03                        # Time step (seconds)
     horizon_s: 5.0                  # Planning horizon
-    path_ahead_m: 1000.0             # Path lookahead distance
+    path_ahead_m: 500.0             # Path lookahead distance
     planning_rate_hz: 30.0          # Planning frequency (Hz)
 
     # Candidate generation (더 넓은 측면 오프셋)
