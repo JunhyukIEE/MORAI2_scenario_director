@@ -49,7 +49,6 @@ public:
     declare_parameter<double>("weights.w_speed", 1.5);
     declare_parameter<double>("weights.w_overtake", 60.0);
     declare_parameter<double>("weights.w_collision", 20000.0);
-    declare_parameter<double>("weights.w_offroad", 4000.0);
     declare_parameter<double>("weights.w_smooth", 8.0);
     declare_parameter<double>("weights.w_curv", 2.0);
     declare_parameter<double>("weights.w_far_from_ref", 2.0);
@@ -133,7 +132,6 @@ public:
     config.weights.w_speed = get_parameter("weights.w_speed").as_double();
     config.weights.w_overtake = get_parameter("weights.w_overtake").as_double();
     config.weights.w_collision = get_parameter("weights.w_collision").as_double();
-    config.weights.w_offroad = get_parameter("weights.w_offroad").as_double();
     config.weights.w_smooth = get_parameter("weights.w_smooth").as_double();
     config.weights.w_curv = get_parameter("weights.w_curv").as_double();
     config.weights.w_far_from_ref = get_parameter("weights.w_far_from_ref").as_double();

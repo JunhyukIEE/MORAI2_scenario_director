@@ -1008,53 +1008,45 @@ PlanResult LocalPathPlanner::plan(
       // ============================================
       // 갭 통과 가능성 페널티 (벽과 상대차량 사이)
       // ============================================
-      if (check_gap) {
+      // 갭 통과 가능성 체크: 가까운 거리에서만 적용 (20m 이내)
+      const double close_gap_check_dist = 20.0;
+      if (check_gap && forward_to_opp < close_gap_check_dist) {
         // 상대 차량의 lateral offset을 고려하여 실제 통과 방향 결정
-        // lat > opp_lat_offset: ego가 상대 차량의 오른쪽으로 지나감
-        // lat < opp_lat_offset: ego가 상대 차량의 왼쪽으로 지나감
-        const double pass_side_threshold = 0.3;  // 최소 차이 (이 이상 차이나야 옆으로 지나가는 것)
+        const double pass_side_threshold = 0.5;
         const double lat_diff = lat - opp_lat_offset_from_ref;
 
-        const double required = config_.ego_width + config_.pass_gap_margin;
+        // 통과 불가능한 쪽으로만 페널티 적용
+        if (lat_diff > pass_side_threshold && !passability.right_passable) {
+          // 오른쪽으로 가려는데 갭 부족
+          R -= config_.impassable_penalty;
+        } else if (lat_diff < -pass_side_threshold && !passability.left_passable) {
+          // 왼쪽으로 가려는데 갭 부족
+          R -= config_.impassable_penalty;
+        }
 
-        if (lat_diff > pass_side_threshold) {
-          // 상대 차량의 오른쪽으로 지나가려 함
-          if (!passability.right_passable) {
-            R -= config_.impassable_penalty;
-          }
-          // 갭 부족 정도에 따른 연속 페널티
-          double gap_shortage = std::max(0.0, required - passability.right_gap);
-          R -= gap_shortage * 8000.0;  // 갭 부족 1m당 페널티
-
-        } else if (lat_diff < -pass_side_threshold) {
-          // 상대 차량의 왼쪽으로 지나가려 함
-          if (!passability.left_passable) {
-            R -= config_.impassable_penalty;
-          }
-          // 갭 부족 정도에 따른 연속 페널티
-          double gap_shortage = std::max(0.0, required - passability.left_gap);
-          R -= gap_shortage * 8000.0;
-
-        } else {
-          // 상대 차량과 거의 같은 lateral 위치 → 정면 충돌 위험
-          // 양쪽 다 못 지나가면 큰 페널티
-          if (!passability.left_passable && !passability.right_passable) {
-            R -= config_.impassable_penalty * 2.0;
-          } else if (!passability.left_passable || !passability.right_passable) {
-            // 한쪽만 열려있는데 중앙으로 가려 함 → 경고 페널티
-            R -= config_.impassable_penalty * 0.5;
-          }
+        // 통과 가능한 쪽으로 유도하는 보너스
+        if (lat_diff > pass_side_threshold && passability.right_passable) {
+          R += config_.weights.w_overtake * 0.5;  // 오른쪽 통과 가능 보너스
+        }
+        if (lat_diff < -pass_side_threshold && passability.left_passable) {
+          R += config_.weights.w_overtake * 0.5;  // 왼쪽 통과 가능 보너스
         }
       }
 
       // Apply hysteresis: penalize changing lateral offset direction
+      // 추월 중이 아닐 때만 강한 페널티 적용 (추월 시작은 허용)
       if (has_prev_offset_) {
         double offset_change = std::abs(lat - prev_lat_offset_);
-        R -= config_.lat_change_penalty * offset_change;
 
-        // Extra penalty for crossing center (changing sides)
-        if ((lat > 0.0 && prev_lat_offset_ < 0.0) || (lat < 0.0 && prev_lat_offset_ > 0.0)) {
-          R -= config_.lat_change_penalty * 2.0;  // Additional penalty for side change
+        // 추월 활성화 시 페널티 대폭 감소 (추월 시작 허용)
+        double penalty_scale = overtake_active ? 0.1 : 1.0;
+        R -= config_.lat_change_penalty * offset_change * penalty_scale;
+
+        // 추월 중 사이드 변경만 페널티 (추월 시작은 허용)
+        if (overtake_active && committed_side_ != 0) {
+          if ((lat > 0.0 && prev_lat_offset_ < 0.0) || (lat < 0.0 && prev_lat_offset_ > 0.0)) {
+            R -= config_.lat_change_penalty;  // 사이드 변경 페널티
+          }
         }
       }
 
@@ -1205,30 +1197,16 @@ PlanResult LocalPathPlanner::plan(
         R += config_.strategy.overtake.gap_reward_scale * 2.5;  // 실행 단계에서 late braking 적극 권장
       }
 
-      // ============================================
-      // Late Braking 경로에도 갭 통과 가능성 페널티 적용
-      // ============================================
-      if (check_gap) {
-        const double pass_side_threshold = 0.3;
+      // Late Braking 경로 갭 체크 (가까운 거리에서만)
+      const double close_gap_check_dist_lb = 20.0;
+      if (check_gap && forward_to_opp < close_gap_check_dist_lb) {
+        const double pass_side_threshold = 0.5;
         const double lat_diff = avg_lat_offset - opp_lat_offset_from_ref;
-        const double required = config_.ego_width + config_.pass_gap_margin;
 
-        if (lat_diff > pass_side_threshold) {
-          if (!passability.right_passable) {
-            R -= config_.impassable_penalty;
-          }
-          double gap_shortage = std::max(0.0, required - passability.right_gap);
-          R -= gap_shortage * 8000.0;
-        } else if (lat_diff < -pass_side_threshold) {
-          if (!passability.left_passable) {
-            R -= config_.impassable_penalty;
-          }
-          double gap_shortage = std::max(0.0, required - passability.left_gap);
-          R -= gap_shortage * 8000.0;
-        } else {
-          if (!passability.left_passable && !passability.right_passable) {
-            R -= config_.impassable_penalty * 2.0;
-          }
+        if (lat_diff > pass_side_threshold && !passability.right_passable) {
+          R -= config_.impassable_penalty;
+        } else if (lat_diff < -pass_side_threshold && !passability.left_passable) {
+          R -= config_.impassable_penalty;
         }
       }
 

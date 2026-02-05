@@ -25,7 +25,6 @@ struct PlannerWeights {
   double w_speed = 1.5;
   double w_overtake = 60.0;
   double w_collision = 20000.0;
-  double w_offroad = 4000.0;
   double w_smooth = 8.0;
   double w_curv = 2.0;
   double w_far_from_ref = 2.0;
