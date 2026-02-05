@@ -150,6 +150,10 @@ private:
     int reuse = 1;
     setsockopt(ego_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
+    // 수신 버퍼 크기 증가 (8MB) - 패킷 손실 방지
+    int rcvbuf_size = 8 * 1024 * 1024;
+    setsockopt(ego_sock_, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size));
+
     timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 100000; // 100ms timeout
@@ -172,6 +176,7 @@ private:
       }
 
       setsockopt(npc_socks_[i], SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+      setsockopt(npc_socks_[i], SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size));
       setsockopt(npc_socks_[i], SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
       sockaddr_in npc_addr{};

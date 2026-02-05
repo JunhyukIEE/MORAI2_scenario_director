@@ -54,8 +54,8 @@ public:
     }
     declare_parameter<double>("npc.min_speed_ratio", 0.2);
     declare_parameter<double>("npc.max_speed_ratio", 1.2);
-    declare_parameter<double>("vehicle.wheelbase", 2.7);
-    declare_parameter<double>("vehicle.max_steering", 0.55);
+    declare_parameter<double>("vehicle.wheelbase", 2.35);
+    declare_parameter<double>("vehicle.max_steering", 0.436);
     declare_parameter<double>("pure_pursuit.lookahead_distance", 6.0);
     declare_parameter<double>("pure_pursuit.min_lookahead", 3.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 10.0);

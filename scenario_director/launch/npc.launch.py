@@ -5,13 +5,10 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     share = get_package_share_directory('scenario_director')
+    # NPC 파라미터는 npc_controller.yaml에 모두 포함 (pure_pursuit 포함)
     base_params = [
         f"{share}/config/npc_controller.yaml",
-        f"{share}/config/pure_pursuit.yaml"
     ]
-
-    # NPC 속도는 npc_controller.yaml에서 관리
-    # npc.speed_ratio.npc_1 ~ npc.speed_ratio.npc_9
 
     nodes = []
 

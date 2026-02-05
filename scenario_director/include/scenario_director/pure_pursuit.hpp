@@ -8,12 +8,12 @@
 namespace scenario_director {
 
 struct PurePursuitConfig {
-  double wheelbase = 2.7;
+  double wheelbase = 2.35;
   double lookahead_distance = 8.0;
   double min_lookahead = 4.0;
   double max_lookahead = 15.0;
   double lookahead_ratio = 0.3;
-  double max_steering = 0.55;
+  double max_steering = 0.436;
 };
 
 class PurePursuitController {

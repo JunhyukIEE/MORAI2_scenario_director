@@ -13,8 +13,8 @@ namespace scenario_director {
 // Configuration structures
 // -----------------------------
 struct VehicleParams {
-  double wheelbase = 2.7;
-  double max_steer = 0.489;      // radians (~28 deg)
+  double wheelbase = 2.35;
+  double max_steer = 0.489;
   double max_accel = 3.5;
   double max_decel = 7.0;
   double max_lat_accel = 8.5;

@@ -63,8 +63,8 @@ public:
   : rclcpp::Node("scenario_director") {
     declare_parameter<std::string>("map.waypoints", "map/waypoints.csv");
     declare_parameter<double>("waypoints.default_speed", 5.0);
-    declare_parameter<double>("vehicle.wheelbase", 2.7);
-    declare_parameter<double>("vehicle.max_steering", 0.55);
+    declare_parameter<double>("vehicle.wheelbase", 2.35);
+    declare_parameter<double>("vehicle.max_steering", 0.436);
     declare_parameter<double>("vehicle.speed_multiplier", 1.0);
     declare_parameter<double>("control.throttle_kp", 0.1);
     declare_parameter<double>("control.brake_kp", 0.1);

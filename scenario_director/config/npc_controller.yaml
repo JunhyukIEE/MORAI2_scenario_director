@@ -1,13 +1,12 @@
-npc_controller:
+"/**":
   ros__parameters:
     line.optimal_path: "map/waypoints.csv"
 
-    # NPC ID (1-9, launch file에서 오버라이드)
+    # NPC ID
     npc.id: 1
 
-    # NPC별 속도 설정 (waypoint 속도 대비 배율)
-    # NPC_1이 가장 느리고, NPC_9가 가장 빠름
-    npc.speed_ratio.npc_1: 1.0
+    # NPC별 속도
+    npc.speed_ratio.npc_1: 0.4
     npc.speed_ratio.npc_2: 0.88
     npc.speed_ratio.npc_3: 0.91
     npc.speed_ratio.npc_4: 0.94
@@ -17,11 +16,17 @@ npc_controller:
     npc.speed_ratio.npc_8: 1.06
     npc.speed_ratio.npc_9: 1.10
 
-    npc.min_speed_ratio: 0.8        # 최소 속도 배율
-    npc.max_speed_ratio: 1.0        # 최대 속도 배율
+    npc.min_speed_ratio: 0.1        # 최소 속도 배율
+    npc.max_speed_ratio: 1.2        # 최대 속도 배율
 
-    vehicle.wheelbase: 2.7
-    vehicle.max_steering: 0.55
+    vehicle.wheelbase: 2.35
+    vehicle.max_steering: 0.436
+
+    # Pure Pursuit
+    pure_pursuit.lookahead_distance: 10.0
+    pure_pursuit.min_lookahead: 5.0
+    pure_pursuit.max_lookahead: 55.0
+    pure_pursuit.lookahead_ratio: 0.35
 
     control.loop_hz: 100.0
     control.throttle_kp: 0.1

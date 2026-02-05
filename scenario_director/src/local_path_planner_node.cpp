@@ -37,8 +37,8 @@ public:
     declare_parameter<std::string>("map.waypoints", "waypoints.csv");
 
     // Vehicle parameters
-    declare_parameter<double>("vehicle.wheelbase", 2.7);
-    declare_parameter<double>("vehicle.max_steer", 0.489);
+    declare_parameter<double>("vehicle.wheelbase", 2.35);
+    declare_parameter<double>("vehicle.max_steer", 0.436);
     declare_parameter<double>("vehicle.max_accel", 3.5);
     declare_parameter<double>("vehicle.max_decel", 7.0);
     declare_parameter<double>("vehicle.max_lat_accel", 8.5);
