@@ -59,6 +59,11 @@ public:
     declare_parameter<double>("opp_length", 4.0);
     declare_parameter<double>("opp_width", 1.7);
 
+    // 갭 통과 안전 설정
+    declare_parameter<double>("pass_gap_margin", 0.8);
+    declare_parameter<double>("gap_check_distance", 30.0);
+    declare_parameter<double>("impassable_penalty", 50000.0);
+
     // Planning settings
     declare_parameter<double>("dt", 0.1);
     declare_parameter<double>("horizon_s", 4.0);
@@ -90,7 +95,18 @@ public:
     declare_parameter<double>("strategy.slow_in_out.overtake_exit_speed_scale", 1.15);
     declare_parameter<double>("strategy.slow_in_out.overtake_entry_speed_scale", 0.80);
 
-    // Overtake strategies
+    // Late Braking (브레이킹 포인트 기반)
+    declare_parameter<bool>("strategy.overtake.late_braking.enabled", true);
+    declare_parameter<double>("strategy.overtake.late_braking.delay_factor", 0.3);
+    declare_parameter<double>("strategy.overtake.late_braking.outside_offset", 2.5);
+    declare_parameter<double>("strategy.overtake.late_braking.inside_offset", 1.5);
+    declare_parameter<double>("strategy.overtake.late_braking.transition_sharpness", 2.0);
+    declare_parameter<double>("strategy.overtake.late_braking.min_corner_curvature", 0.03);
+    declare_parameter<double>("strategy.overtake.late_braking.safety_margin", 1.2);
+    declare_parameter<double>("strategy.overtake.late_braking.max_decel_override", 0.0);
+    declare_parameter<double>("strategy.overtake.late_braking.exit_recovery_distance", 15.0);
+
+    // Overtake strategies (deprecated, kept for compatibility)
     declare_parameter<double>("strategy.overtake.late_brake_distance", 8.0);
     declare_parameter<double>("strategy.overtake.late_brake_speed_scale", 0.75);
     declare_parameter<double>("strategy.overtake.block_pass_offset", 2.5);
@@ -147,6 +163,9 @@ public:
     config.ego_width = get_parameter("ego_width").as_double();
     config.opp_length = get_parameter("opp_length").as_double();
     config.opp_width = get_parameter("opp_width").as_double();
+    config.pass_gap_margin = get_parameter("pass_gap_margin").as_double();
+    config.gap_check_distance = get_parameter("gap_check_distance").as_double();
+    config.impassable_penalty = get_parameter("impassable_penalty").as_double();
 
     config.dt = get_parameter("dt").as_double();
     config.horizon_s = get_parameter("horizon_s").as_double();
@@ -181,6 +200,27 @@ public:
     config.strategy.slow_in_out.overtake_entry_speed_scale =
         get_parameter("strategy.slow_in_out.overtake_entry_speed_scale").as_double();
 
+    // Late Braking config
+    config.strategy.overtake.late_braking.enabled =
+        get_parameter("strategy.overtake.late_braking.enabled").as_bool();
+    config.strategy.overtake.late_braking.delay_factor =
+        get_parameter("strategy.overtake.late_braking.delay_factor").as_double();
+    config.strategy.overtake.late_braking.outside_offset =
+        get_parameter("strategy.overtake.late_braking.outside_offset").as_double();
+    config.strategy.overtake.late_braking.inside_offset =
+        get_parameter("strategy.overtake.late_braking.inside_offset").as_double();
+    config.strategy.overtake.late_braking.transition_sharpness =
+        get_parameter("strategy.overtake.late_braking.transition_sharpness").as_double();
+    config.strategy.overtake.late_braking.min_corner_curvature =
+        get_parameter("strategy.overtake.late_braking.min_corner_curvature").as_double();
+    config.strategy.overtake.late_braking.safety_margin =
+        get_parameter("strategy.overtake.late_braking.safety_margin").as_double();
+    config.strategy.overtake.late_braking.max_decel_override =
+        get_parameter("strategy.overtake.late_braking.max_decel_override").as_double();
+    config.strategy.overtake.late_braking.exit_recovery_distance =
+        get_parameter("strategy.overtake.late_braking.exit_recovery_distance").as_double();
+
+    // Deprecated (kept for compatibility)
     config.strategy.overtake.late_brake_distance =
         get_parameter("strategy.overtake.late_brake_distance").as_double();
     config.strategy.overtake.late_brake_speed_scale =

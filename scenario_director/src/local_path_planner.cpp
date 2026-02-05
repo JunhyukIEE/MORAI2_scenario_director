@@ -191,21 +191,135 @@ void ReferenceLine::getShiftedLine(const std::vector<int>& indices, double offse
   }
 }
 
+void ReferenceLine::getLateBrakingLine(const std::vector<int>& indices,
+                                        size_t brake_point_idx, size_t apex_idx,
+                                        int corner_sign,
+                                        double outside_offset, double inside_offset,
+                                        double sharpness, double exit_distance,
+                                        std::vector<double>& out_x, std::vector<double>& out_y) const {
+  size_t M = indices.size();
+  out_x.resize(M);
+  out_y.resize(M);
+
+  // 안전 검증
+  brake_point_idx = std::min(brake_point_idx, M - 1);
+  apex_idx = std::min(apex_idx, M - 1);
+  if (brake_point_idx >= apex_idx) {
+    brake_point_idx = (apex_idx > 0) ? apex_idx - 1 : 0;
+  }
+
+  // 코너 방향에 따른 오프셋 부호 결정
+  // corner_sign > 0: 우회전 -> 인사이드는 오른쪽(+), 아웃사이드는 왼쪽(-)
+  // corner_sign < 0: 좌회전 -> 인사이드는 왼쪽(-), 아웃사이드는 오른쪽(+)
+  const double actual_outside = -corner_sign * outside_offset;  // 바깥쪽
+  const double actual_inside = corner_sign * inside_offset;     // 안쪽
+
+  // apex 후 복귀 구간 계산
+  size_t exit_end_idx = apex_idx;
+  double accumulated_dist = 0.0;
+  for (size_t i = apex_idx; i + 1 < M && accumulated_dist < exit_distance; ++i) {
+    int idx_curr = indices[i];
+    int idx_next = indices[i + 1];
+    accumulated_dist += std::hypot(x_[idx_next] - x_[idx_curr], y_[idx_next] - y_[idx_curr]);
+    exit_end_idx = i + 1;
+  }
+
+  for (size_t i = 0; i < M; ++i) {
+    int idx = indices[i];
+
+    // 법선 벡터 계산
+    int idx_prev = (idx == 0) ? (loop_ ? static_cast<int>(N_) - 1 : 0) : idx - 1;
+    int idx_next_pt = (idx == static_cast<int>(N_) - 1) ? (loop_ ? 0 : idx) : idx + 1;
+
+    double dx = x_[idx_next_pt] - x_[idx_prev];
+    double dy = y_[idx_next_pt] - y_[idx_prev];
+    double len = std::hypot(dx, dy);
+
+    double nx, ny;
+    if (len > 1e-6) {
+      nx = -dy / len;
+      ny = dx / len;
+    } else {
+      nx = -std::sin(yaw_[idx]);
+      ny = std::cos(yaw_[idx]);
+    }
+
+    // 위치에 따른 오프셋 계산
+    double offset;
+
+    if (i <= brake_point_idx) {
+      // 브레이킹 포인트 전: 바깥쪽 유지
+      offset = actual_outside;
+    } else if (i <= apex_idx) {
+      // 브레이킹 ~ apex: 급격한 전환 (out -> in)
+      double t = static_cast<double>(i - brake_point_idx) /
+                 static_cast<double>(apex_idx - brake_point_idx);
+      // sharpness가 높을수록 나중에 급격히 꺾임
+      // t^sharpness 곡선 사용
+      double curved_t = std::pow(t, sharpness);
+      offset = actual_outside + (actual_inside - actual_outside) * curved_t;
+    } else if (i <= exit_end_idx) {
+      // apex ~ exit: 레이싱라인으로 복귀 (in -> 0)
+      double t = static_cast<double>(i - apex_idx) /
+                 static_cast<double>(exit_end_idx - apex_idx);
+      // 부드러운 복귀 (1 - (1-t)^2)
+      double smooth_t = 1.0 - (1.0 - t) * (1.0 - t);
+      offset = actual_inside * (1.0 - smooth_t);
+    } else {
+      // exit 이후: 레이싱라인
+      offset = 0.0;
+    }
+
+    out_x[i] = x_[idx] + offset * nx;
+    out_y[i] = y_[idx] + offset * ny;
+  }
+}
+
 // -----------------------------
 // OpponentPredictor implementation
 // -----------------------------
 OpponentPredictor::OpponentPredictor(std::shared_ptr<ReferenceLine> ref)
     : ref_(std::move(ref)) {}
 
+double OpponentPredictor::estimateSpeedRatio(double opp_x, double opp_y, double opp_v) const {
+  int idx = ref_->nearestIndex(opp_x, opp_y);
+  double v_ref = ref_->v_ref()[idx];
+
+  if (v_ref < 1.0) {
+    // v_ref가 너무 작으면 기본값 사용
+    return 1.0;
+  }
+
+  // 현재 속도 / 레퍼런스 속도 = speed_ratio
+  double ratio = opp_v / v_ref;
+
+  // 합리적인 범위로 클램프 (0.3 ~ 1.5)
+  return std::clamp(ratio, 0.3, 1.5);
+}
+
 void OpponentPredictor::predictStates(double opp_x, double opp_y, double opp_v,
                                        double horizon_s, double dt,
                                        std::vector<double>& out_x,
                                        std::vector<double>& out_y,
                                        std::vector<double>& out_yaw) const {
+  // 기존 등속 방식 (하위 호환성)
+  std::vector<double> out_v;
+  predictStatesWithVRef(opp_x, opp_y, opp_v, 0.0, horizon_s, dt,
+                        out_x, out_y, out_yaw, out_v);
+}
+
+void OpponentPredictor::predictStatesWithVRef(double opp_x, double opp_y, double opp_v,
+                                               double speed_ratio,
+                                               double horizon_s, double dt,
+                                               std::vector<double>& out_x,
+                                               std::vector<double>& out_y,
+                                               std::vector<double>& out_yaw,
+                                               std::vector<double>& out_v) const {
   int T = static_cast<int>(horizon_s / dt);
   out_x.resize(T);
   out_y.resize(T);
   out_yaw.resize(T);
+  out_v.resize(T);
 
   int idx = ref_->nearestIndex(opp_x, opp_y);
   int N = static_cast<int>(ref_->size());
@@ -213,8 +327,14 @@ void OpponentPredictor::predictStates(double opp_x, double opp_y, double opp_v,
   const auto& rx = ref_->x();
   const auto& ry = ref_->y();
   const auto& ryaw = ref_->yaw();
+  const auto& rv = ref_->v_ref();
 
-  double dist_per_step = opp_v * dt;
+  // speed_ratio가 0이면 현재 속도에서 추정
+  double actual_ratio = speed_ratio;
+  if (actual_ratio <= 0.0) {
+    actual_ratio = estimateSpeedRatio(opp_x, opp_y, opp_v);
+  }
+
   double accumulated = 0.0;
 
   for (int t = 0; t < T; ++t) {
@@ -222,7 +342,13 @@ void OpponentPredictor::predictStates(double opp_x, double opp_y, double opp_v,
     out_y[t] = ry[idx];
     out_yaw[t] = ryaw[idx];
 
+    // 핵심: v_ref × speed_ratio로 해당 위치에서의 속도 예측
+    out_v[t] = rv[idx] * actual_ratio;
+
+    // 해당 속도로 이동
+    double dist_per_step = out_v[t] * dt;
     accumulated += dist_per_step;
+
     while (accumulated > 0) {
       int next_idx = (idx + 1) % N;
       double seg_len = std::hypot(rx[next_idx] - rx[idx], ry[next_idx] - ry[idx]);
@@ -436,6 +562,193 @@ double LocalPathPlanner::sDeltaLoop(double s_from, double s_to) const {
   return d;
 }
 
+LocalPathPlanner::PassabilityInfo LocalPathPlanner::checkPassability(
+    double opp_x, double opp_y, double opp_yaw) const {
+
+  PassabilityInfo info;
+
+  // 상대 차량 기준 좌/우 방향 벡터
+  const double left_nx = -std::sin(opp_yaw);
+  const double left_ny = std::cos(opp_yaw);
+  const double right_nx = std::sin(opp_yaw);
+  const double right_ny = -std::cos(opp_yaw);
+
+  // 상대 차량 폭의 절반
+  const double half_opp_width = config_.opp_width * 0.5;
+
+  // 왼쪽 갭 측정: 상대 차량 왼쪽 끝에서 벽까지 거리
+  double left_edge_x = opp_x + left_nx * half_opp_width;
+  double left_edge_y = opp_y + left_ny * half_opp_width;
+
+  // 오른쪽 갭 측정: 상대 차량 오른쪽 끝에서 벽까지 거리
+  double right_edge_x = opp_x + right_nx * half_opp_width;
+  double right_edge_y = opp_y + right_ny * half_opp_width;
+
+  // 벽까지 거리 측정 (최대 10m까지 체크)
+  constexpr double MAX_CHECK_DIST = 10.0;
+  constexpr double STEP = 0.3;
+
+  // 왼쪽 갭 측정
+  info.left_gap = 0.0;
+  for (double d = STEP; d <= MAX_CHECK_DIST; d += STEP) {
+    double check_x = left_edge_x + left_nx * d;
+    double check_y = left_edge_y + left_ny * d;
+    if (!checker_.isDrivable(check_x, check_y)) {
+      info.left_gap = d - STEP;
+      break;
+    }
+    info.left_gap = d;
+  }
+
+  // 오른쪽 갭 측정
+  info.right_gap = 0.0;
+  for (double d = STEP; d <= MAX_CHECK_DIST; d += STEP) {
+    double check_x = right_edge_x + right_nx * d;
+    double check_y = right_edge_y + right_ny * d;
+    if (!checker_.isDrivable(check_x, check_y)) {
+      info.right_gap = d - STEP;
+      break;
+    }
+    info.right_gap = d;
+  }
+
+  // 통과 가능 여부 판단: 갭 > ego 차량 폭 + 안전 마진
+  const double required_gap = config_.ego_width + config_.pass_gap_margin;
+  info.left_passable = (info.left_gap >= required_gap);
+  info.right_passable = (info.right_gap >= required_gap);
+
+  return info;
+}
+
+double LocalPathPlanner::computeBrakingDistance(double current_speed, double apex_curvature,
+                                                 double delay_factor) const {
+  const auto& lb_cfg = config_.strategy.overtake.late_braking;
+  const double max_decel = (lb_cfg.max_decel_override > 0.0)
+                             ? lb_cfg.max_decel_override
+                             : config_.vehicle.max_decel;
+
+  // apex에서 필요한 속도: v_apex = sqrt(max_lat_accel / curvature)
+  const double abs_curvature = std::max(std::abs(apex_curvature), 1e-6);
+  const double v_apex = std::sqrt(config_.vehicle.max_lat_accel / abs_curvature);
+
+  // 현재 속도에서 apex 속도까지 감속에 필요한 거리
+  // d = (v0^2 - v_apex^2) / (2 * decel)
+  const double v0_sq = current_speed * current_speed;
+  const double v_apex_sq = v_apex * v_apex;
+
+  if (v0_sq <= v_apex_sq) {
+    // 이미 충분히 느림, 브레이킹 불필요
+    return 0.0;
+  }
+
+  const double base_distance = (v0_sq - v_apex_sq) / (2.0 * max_decel);
+
+  // 안전 마진 적용
+  const double safe_distance = base_distance * lb_cfg.safety_margin;
+
+  // delay_factor 적용: 브레이킹 시작을 늦춤
+  // delay_factor = 0.0 -> 정상 브레이킹
+  // delay_factor = 0.5 -> 50% 늦게 브레이킹 (거리 50% 줄임)
+  const double delayed_distance = safe_distance * (1.0 - delay_factor);
+
+  return delayed_distance;
+}
+
+std::vector<LocalPathPlanner::LateBrakingCandidate> LocalPathPlanner::generateLateBrakingCandidates(
+    const std::vector<int>& indices,
+    const std::vector<double>& base_v,
+    const std::vector<double>& base_kappa,
+    const std::vector<double>& ds_from_start,
+    double current_speed,
+    size_t apex_idx, double apex_curvature, int corner_sign) const {
+
+  std::vector<LateBrakingCandidate> candidates;
+  const auto& lb_cfg = config_.strategy.overtake.late_braking;
+
+  if (!lb_cfg.enabled || std::abs(apex_curvature) < lb_cfg.min_corner_curvature) {
+    return candidates;  // late braking 비활성화 또는 코너가 너무 완만
+  }
+
+  // 다양한 delay factor로 후보 생성 (0.1 ~ delay_factor까지)
+  std::vector<double> delay_factors = {0.0, lb_cfg.delay_factor * 0.5, lb_cfg.delay_factor};
+
+  // 다양한 inside offset으로 후보 생성
+  std::vector<double> inside_offsets = {
+    lb_cfg.inside_offset * 0.5,
+    lb_cfg.inside_offset,
+    lb_cfg.inside_offset * 1.5
+  };
+
+  const double apex_distance = ds_from_start[apex_idx];
+
+  for (double delay : delay_factors) {
+    // 브레이킹 거리 계산
+    double brake_distance = computeBrakingDistance(current_speed, apex_curvature, delay);
+
+    // 브레이킹 포인트 = apex 위치 - 브레이킹 거리
+    double brake_point_s = apex_distance - brake_distance;
+    if (brake_point_s < 0.0) {
+      brake_point_s = 0.0;  // 이미 브레이킹 구간에 있음
+    }
+
+    // brake_point_s에 해당하는 인덱스 찾기
+    size_t brake_idx = 0;
+    for (size_t i = 0; i < indices.size(); ++i) {
+      if (ds_from_start[i] >= brake_point_s) {
+        brake_idx = i;
+        break;
+      }
+    }
+
+    for (double inside_off : inside_offsets) {
+      LateBrakingCandidate cand;
+      cand.brake_point_idx = brake_idx;
+      cand.apex_idx = apex_idx;
+      cand.corner_sign = corner_sign;
+      cand.outside_offset = lb_cfg.outside_offset;
+      cand.inside_offset = inside_off;
+
+      // 경로 생성
+      ref_->getLateBrakingLine(indices, brake_idx, apex_idx, corner_sign,
+                               lb_cfg.outside_offset, inside_off,
+                               lb_cfg.transition_sharpness, lb_cfg.exit_recovery_distance,
+                               cand.path_x, cand.path_y);
+
+      // 속도 프로파일 생성
+      cand.v_desired.resize(indices.size());
+      for (size_t i = 0; i < indices.size(); ++i) {
+        double v = base_v[i];
+
+        if (i >= brake_idx && i <= apex_idx) {
+          // 브레이킹 구간: 점진적 감속
+          double t = static_cast<double>(i - brake_idx) /
+                     static_cast<double>(apex_idx - brake_idx + 1);
+          double abs_k = std::max(std::abs(apex_curvature), 1e-6);
+          double v_apex = std::sqrt(config_.vehicle.max_lat_accel / abs_k);
+          v = current_speed + (v_apex - current_speed) * t;
+        } else if (i > apex_idx) {
+          // 탈출 구간: 가속
+          double exit_boost = config_.strategy.overtake.outside_exit_boost;
+          v *= exit_boost;
+        }
+
+        // 곡률 기반 속도 제한
+        double abs_k = std::abs(base_kappa[i]);
+        if (abs_k > 1e-6) {
+          double v_cap = std::sqrt(config_.vehicle.max_lat_accel / abs_k);
+          v = std::min(v, v_cap);
+        }
+
+        cand.v_desired[i] = std::max(v, 5.0);  // 최소 속도 보장
+      }
+
+      candidates.push_back(std::move(cand));
+    }
+  }
+
+  return candidates;
+}
+
 double LocalPathPlanner::computeReward(
     const std::vector<TrajectoryPoint>& traj,
     const std::vector<double>& cand_kappa,
@@ -646,6 +959,16 @@ PlanResult LocalPathPlanner::plan(
   // 추월 방향 결정 (상대의 반대편으로)
   const int overtake_side = (lateral_to_opp > 0.0) ? -1 : 1;  // 상대가 오른쪽이면 왼쪽으로 추월
 
+  // 상대 차량과 벽 사이 갭 체크 (전방에 있고 가까울 때만)
+  PassabilityInfo passability;
+  const bool check_gap = opp_ahead && forward_to_opp < config_.gap_check_distance;
+  if (check_gap) {
+    // 상대 차량의 yaw 추정 (레퍼런스 라인 기준)
+    int opp_idx = ref_->nearestIndex(opp_x, opp_y);
+    double opp_yaw_est = ref_->yaw()[opp_idx];
+    passability = checkPassability(opp_x, opp_y, opp_yaw_est);
+  }
+
   // Dummy (feint) state update
   if (!dummy_trigger) {
     dummy_active_ = false;
@@ -739,11 +1062,13 @@ PlanResult LocalPathPlanner::plan(
     }
   }
 
-  // Predict opponent trajectory
-  std::vector<double> opp_future_x, opp_future_y, opp_future_yaw;
-  opp_pred_->predictStates(opp_x, opp_y, opp_v,
-                           config_.horizon_s, config_.dt,
-                           opp_future_x, opp_future_y, opp_future_yaw);
+  // Predict opponent trajectory (v_ref 기반 예측)
+  // 현재 속도에서 speed_ratio 추정 후, 각 위치의 v_ref × ratio로 예측
+  std::vector<double> opp_future_x, opp_future_y, opp_future_yaw, opp_future_v;
+  const double estimated_ratio = opp_pred_->estimateSpeedRatio(opp_x, opp_y, opp_v);
+  opp_pred_->predictStatesWithVRef(opp_x, opp_y, opp_v, estimated_ratio,
+                                    config_.horizon_s, config_.dt,
+                                    opp_future_x, opp_future_y, opp_future_yaw, opp_future_v);
 
   PlanResult best;
   best.reward = -std::numeric_limits<double>::max();
@@ -778,10 +1103,8 @@ PlanResult LocalPathPlanner::plan(
           v *= config_.strategy.overtake.execute_speed_boost;
         }
 
-        if (overtake_active && has_overtake_apex) {
-          const bool in_late_brake =
-              dist_to_overtake_apex[i] >= 0.0 &&
-              dist_to_overtake_apex[i] <= config_.strategy.overtake.late_brake_distance;
+        // Chicane에서 아웃사이드 전략 (late braking이 아닌 경우)
+        if (overtake_active && has_overtake_apex && chicane_detected) {
           const bool in_entry_zone =
               dist_to_overtake_apex[i] >= 0.0 &&
               dist_to_overtake_apex[i] <= config_.strategy.slow_in_out.entry_distance;
@@ -789,10 +1112,7 @@ PlanResult LocalPathPlanner::plan(
               dist_from_overtake_apex[i] >= 0.0 &&
               dist_from_overtake_apex[i] <= config_.strategy.slow_in_out.exit_distance;
 
-          if (inside_sign != 0 && lat * inside_sign > 0.1 && in_late_brake) {
-            v *= config_.strategy.overtake.late_brake_speed_scale;
-          }
-          if (chicane_detected && outside_sign != 0 && lat * outside_sign > 0.1) {
+          if (outside_sign != 0 && lat * outside_sign > 0.1) {
             if (in_entry_zone) {
               v *= config_.strategy.overtake.outside_entry_speed_scale;
             }
@@ -812,6 +1132,33 @@ PlanResult LocalPathPlanner::plan(
       // Compute reward
       double R = computeReward(traj, cand_kappa, lat,
                                opp_future_x, opp_future_y, opp_future_yaw);
+
+      // ============================================
+      // 갭 통과 가능성 페널티 (벽과 상대차량 사이)
+      // ============================================
+      if (check_gap) {
+        // lat > 0: 오른쪽으로 가려함, lat < 0: 왼쪽으로 가려함
+        // 상대가 전방에 있을 때, 그 옆으로 지나가려면 충분한 갭 필요
+        if (lat > 0.5 && !passability.right_passable) {
+          // 오른쪽으로 가려는데 오른쪽 갭이 부족
+          R -= config_.impassable_penalty;
+        }
+        if (lat < -0.5 && !passability.left_passable) {
+          // 왼쪽으로 가려는데 왼쪽 갭이 부족
+          R -= config_.impassable_penalty;
+        }
+
+        // 갭이 좁을수록 추가 페널티 (부드러운 감쇠)
+        const double required = config_.ego_width + config_.pass_gap_margin;
+        if (lat > 0.5) {
+          double gap_shortage = std::max(0.0, required - passability.right_gap);
+          R -= gap_shortage * 5000.0;  // 갭 부족 1m당 5000 페널티
+        }
+        if (lat < -0.5) {
+          double gap_shortage = std::max(0.0, required - passability.left_gap);
+          R -= gap_shortage * 5000.0;
+        }
+      }
 
       // Apply hysteresis: penalize changing lateral offset direction
       if (has_prev_offset_) {
@@ -913,6 +1260,80 @@ PlanResult LocalPathPlanner::plan(
           best.candidate_path.emplace_back(cand_x[i], cand_y[i]);
         }
         best.v_desired = std::move(v_des);
+      }
+    }
+  }
+
+  // ============================================
+  // Late Braking 후보 평가 (브레이킹 포인트 기반)
+  // ============================================
+  if (overtake_active && has_overtake_apex) {
+    // Late braking 후보 생성
+    auto lb_candidates = generateLateBrakingCandidates(
+        idxs, base_v, base_kappa, ds_from_start,
+        ego_v, overtake_apex_i, overtake_apex_k, corner_sign);
+
+    for (const auto& lb_cand : lb_candidates) {
+      // Compute curvature for late braking path
+      std::vector<double> lb_kappa = computeCurvature(lb_cand.path_x, lb_cand.path_y);
+
+      // Rollout trajectory
+      std::vector<TrajectoryPoint> traj = rolloutFollowPath(
+          ego_x, ego_y, ego_yaw, ego_v,
+          lb_cand.path_x, lb_cand.path_y, lb_cand.v_desired);
+
+      // 평균 lateral offset 계산 (late braking 경로는 가변이므로)
+      double avg_lat_offset = 0.0;
+      if (!lb_cand.path_x.empty() && !idxs.empty()) {
+        // 브레이킹 포인트에서의 offset 사용
+        size_t sample_idx = std::min(lb_cand.brake_point_idx, lb_cand.path_x.size() - 1);
+        int ref_idx = idxs[sample_idx];
+        double dx = lb_cand.path_x[sample_idx] - ref_->x()[ref_idx];
+        double dy = lb_cand.path_y[sample_idx] - ref_->y()[ref_idx];
+        avg_lat_offset = std::sqrt(dx * dx + dy * dy);
+        if (lb_cand.corner_sign > 0) avg_lat_offset = -avg_lat_offset;  // 우회전 시 바깥 = 음수
+      }
+
+      // Compute reward
+      double R = computeReward(traj, lb_kappa, avg_lat_offset,
+                               opp_future_x, opp_future_y, opp_future_yaw);
+
+      // Late braking 보너스: 추월 시도에 보상
+      R += config_.weights.w_overtake * 2.0;
+
+      // 브레이킹 포인트가 늦을수록 (delay가 높을수록) 보너스
+      double delay_bonus = static_cast<double>(lb_cand.brake_point_idx) /
+                           static_cast<double>(lb_cand.apex_idx + 1);
+      R += config_.weights.w_overtake * delay_bonus * 1.5;
+
+      // Hysteresis 적용
+      if (has_prev_offset_) {
+        double offset_change = std::abs(avg_lat_offset - prev_lat_offset_);
+        R -= config_.lat_change_penalty * offset_change * 0.5;  // late braking은 페널티 감소
+      }
+
+      // Side commitment (late braking은 인사이드로 가므로)
+      if (committed_side_ != 0 && committed_side_ != corner_sign) {
+        R -= config_.overtake_side_commit_penalty * 0.3;  // late braking은 페널티 감소
+      }
+
+      // Phase 보너스
+      if (phase_execute) {
+        R += config_.strategy.overtake.gap_reward_scale * 2.5;  // 실행 단계에서 late braking 적극 권장
+      }
+
+      debug_results.push_back({R, avg_lat_offset, 1.0});
+
+      if (R > best.reward) {
+        best.reward = R;
+        best.lat_offset = avg_lat_offset;
+        best.speed_scale = 1.0;
+        best.trajectory = std::move(traj);
+        best.candidate_path.clear();
+        for (size_t i = 0; i < lb_cand.path_x.size(); ++i) {
+          best.candidate_path.emplace_back(lb_cand.path_x[i], lb_cand.path_y[i]);
+        }
+        best.v_desired = lb_cand.v_desired;
       }
     }
   }

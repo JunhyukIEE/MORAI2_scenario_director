@@ -44,9 +44,25 @@ struct SlowInOutConfig {
   double overtake_entry_speed_scale = 0.80;
 };
 
+struct LateBrakingConfig {
+  bool enabled = true;
+  double delay_factor = 0.3;              // 브레이킹 포인트를 얼마나 늦출지 (0.0~1.0, 높을수록 늦게)
+  double outside_offset = 2.5;            // 브레이킹 전 바깥쪽 오프셋 (m)
+  double inside_offset = -1.5;            // apex에서 안쪽 오프셋 (m), 코너 방향에 따라 부호 반전됨
+  double transition_sharpness = 2.0;      // 전환 곡선의 날카로움 (높을수록 급격히 꺾음)
+  double min_corner_curvature = 0.03;     // late braking 적용할 최소 곡률
+  double safety_margin = 1.2;             // 브레이킹 거리 안전 마진 (1.0 = 마진 없음)
+  double max_decel_override = 0.0;        // 0이면 vehicle.max_decel 사용, 아니면 이 값 사용
+  double exit_recovery_distance = 15.0;   // apex 후 레이싱라인 복귀 거리 (m)
+};
+
 struct OvertakeStrategyConfig {
-  double late_brake_distance = 8.0;
-  double late_brake_speed_scale = 0.75;
+  // Late braking 설정 (브레이킹 포인트 기반)
+  LateBrakingConfig late_braking;
+
+  // 기존 설정 (deprecated, late_braking으로 대체됨)
+  double late_brake_distance = 8.0;       // deprecated
+  double late_brake_speed_scale = 0.75;   // deprecated
   double block_pass_offset = 2.5;
 
   double dummy_trigger_distance = 20.0;
@@ -83,6 +99,11 @@ struct LocalPlannerConfig {
   double ego_width = 1.7;
   double opp_length = 4.0;
   double opp_width = 1.7;
+
+  // 갭 통과 안전 마진
+  double pass_gap_margin = 0.8;           // 통과 시 필요한 추가 마진 (m)
+  double gap_check_distance = 30.0;       // 갭 체크할 전방 거리 (m)
+  double impassable_penalty = 50000.0;    // 통과 불가능 방향 페널티
 
   double dt = 0.1;
   double horizon_s = 4.0;
@@ -152,6 +173,21 @@ public:
   void getShiftedLine(const std::vector<int>& indices, double offset_m,
                       std::vector<double>& out_x, std::vector<double>& out_y) const;
 
+  // Late braking 경로 생성: 브레이킹 포인트 기반 가변 오프셋
+  // brake_point_idx: 브레이킹 시작 인덱스 (indices 내 상대 인덱스)
+  // apex_idx: 코너 apex 인덱스 (indices 내 상대 인덱스)
+  // corner_sign: 코너 방향 (+1: 우회전, -1: 좌회전)
+  // outside_offset: 브레이킹 전 바깥쪽 오프셋
+  // inside_offset: apex에서 안쪽 오프셋 (절대값, 코너 방향에 따라 부호 결정)
+  // sharpness: 전환 곡선 날카로움 (1.0=선형, 높을수록 급격)
+  // exit_distance: apex 후 복귀 거리
+  void getLateBrakingLine(const std::vector<int>& indices,
+                          size_t brake_point_idx, size_t apex_idx,
+                          int corner_sign,
+                          double outside_offset, double inside_offset,
+                          double sharpness, double exit_distance,
+                          std::vector<double>& out_x, std::vector<double>& out_y) const;
+
   // Direct access
   const std::vector<double>& x() const { return x_; }
   const std::vector<double>& y() const { return y_; }
@@ -181,11 +217,25 @@ class OpponentPredictor {
 public:
   explicit OpponentPredictor(std::shared_ptr<ReferenceLine> ref);
 
+  // 기존 방식 (등속 가정) - deprecated
   void predictStates(double opp_x, double opp_y, double opp_v,
                      double horizon_s, double dt,
                      std::vector<double>& out_x,
                      std::vector<double>& out_y,
                      std::vector<double>& out_yaw) const;
+
+  // 개선된 방식: v_ref × speed_ratio 기반 예측
+  // speed_ratio: NPC의 속도 배율 (0이면 현재 속도에서 자동 추정)
+  void predictStatesWithVRef(double opp_x, double opp_y, double opp_v,
+                              double speed_ratio,
+                              double horizon_s, double dt,
+                              std::vector<double>& out_x,
+                              std::vector<double>& out_y,
+                              std::vector<double>& out_yaw,
+                              std::vector<double>& out_v) const;
+
+  // 현재 속도로부터 speed_ratio 추정
+  double estimateSpeedRatio(double opp_x, double opp_y, double opp_v) const;
 
 private:
   std::shared_ptr<ReferenceLine> ref_;
@@ -238,6 +288,46 @@ private:
 
   // s-delta for loop
   double sDeltaLoop(double s_from, double s_to) const;
+
+  // Late braking: 브레이킹 포인트 계산
+  // current_speed: 현재 속도 (m/s)
+  // apex_curvature: apex 곡률 (1/m)
+  // delay_factor: 브레이킹 지연 계수 (0.0~1.0)
+  // 반환: apex까지의 필요 브레이킹 거리 (m)
+  double computeBrakingDistance(double current_speed, double apex_curvature,
+                                double delay_factor) const;
+
+  // 상대 차량 옆 통과 가능 여부 체크
+  // 상대 차량과 트랙 경계 사이의 갭이 ego 차량이 지나갈 수 있는지 확인
+  // 반환: {left_passable, right_passable, left_gap, right_gap}
+  struct PassabilityInfo {
+    bool left_passable = false;   // 왼쪽으로 통과 가능
+    bool right_passable = false;  // 오른쪽으로 통과 가능
+    double left_gap = 0.0;        // 상대차량 왼쪽과 벽 사이 갭 (m)
+    double right_gap = 0.0;       // 상대차량 오른쪽과 벽 사이 갭 (m)
+  };
+  PassabilityInfo checkPassability(double opp_x, double opp_y, double opp_yaw) const;
+
+  // Late braking 경로 후보 생성
+  struct LateBrakingCandidate {
+    std::vector<double> path_x;
+    std::vector<double> path_y;
+    std::vector<double> v_desired;
+    double outside_offset;
+    double inside_offset;
+    size_t brake_point_idx;
+    size_t apex_idx;
+    int corner_sign;
+  };
+
+  // apex 정보와 현재 상태로 late braking 후보 경로들 생성
+  std::vector<LateBrakingCandidate> generateLateBrakingCandidates(
+      const std::vector<int>& indices,
+      const std::vector<double>& base_v,
+      const std::vector<double>& base_kappa,
+      const std::vector<double>& ds_from_start,
+      double current_speed,
+      size_t apex_idx, double apex_curvature, int corner_sign) const;
 
   LocalPlannerConfig config_;
   TrackBoundaryChecker checker_;
