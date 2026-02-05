@@ -16,7 +16,7 @@ local_path_planner:
     weights.w_progress: 80.0        # Track progress reward
     weights.w_speed: 150.0         # Speed reward
     weights.w_overtake: 60.0        # Overtake reward
-    weights.w_collision: 1000.0    # Collision penalty
+    weights.w_collision: 10000.0    # Collision penalty
     weights.w_smooth: 10.0           # Smoothness penalty
     weights.w_curv: 20.0             # Curvature penalty
     weights.w_far_from_ref: 0.0     # Distance from reference line penalty
@@ -30,7 +30,7 @@ local_path_planner:
     # 갭 통과 안전 설정 (벽과 상대차량 사이 공간 체크)
     pass_gap_margin: 2.5              # 통과 시 필요한 추가 마진 (m)
     gap_check_distance: 100.0          # 갭 체크할 전방 거리 (m)
-    impassable_penalty: 8000.0       # 통과 불가능 방향 페널티
+    impassable_penalty: 90000.0       # 통과 불가능 방향 페널티
 
     # Planning settings
     dt: 0.1                         # Time step (seconds)
@@ -49,7 +49,7 @@ local_path_planner:
 
     # Hysteresis (방향 변경 페널티 - 갈팡질팡 방지)
     lat_change_penalty: 800.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)
-    overtake_side_commit_penalty: 1000.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
+    overtake_side_commit_penalty: 10000.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
 
     # 추월 전략 설정
     # Late Braking (브레이킹 포인트 기반) - out→out(mid)→in(mid) 궤적 자동 생성

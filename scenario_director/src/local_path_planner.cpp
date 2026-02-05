@@ -1267,17 +1267,32 @@ PlanResult LocalPathPlanner::plan(
     std::vector<int> pass_sides = {-1, 1};  // 왼쪽, 오른쪽
 
     // forward_to_opp 기반으로 entry/exit 거리 결정
-    // entry: 현재 상대까지 거리 (즉시 회피 시작)
-    // exit: 상대 통과 후 복귀 거리 (고정값 또는 속도 비례)
-    const double entry_dist = forward_to_opp;  // 상대까지 거리만큼 진입 구간
-    const double exit_dist = std::max(8.0, ego_v * 0.5);  // 최소 8m 또는 속도의 절반
+    const double entry_dist = forward_to_opp;
+    const double exit_dist = std::max(8.0, ego_v * 0.5);
+
+    // 차량 크기 기반 최소 안전 offset 계산
+    // 상대와 ego 중심 간 최소 거리 = (ego_width + opp_width) / 2 + 안전마진
+    const double min_safe_offset = (config_.ego_width + config_.opp_width) * 0.5 + 0.5;
 
     for (int pass_side : pass_sides) {
       // 통과 가능 여부 체크
       bool can_pass = (pass_side > 0) ? passability.right_passable : passability.left_passable;
+      double available_gap = (pass_side > 0) ? passability.right_gap : passability.left_gap;
 
-      // 통과 불가능해도 후보로는 생성 (페널티로 처리)
-      for (double avoid_offset : avoid_cfg.avoidance_offsets) {
+      // 통과 불가능하면 이 방향 스킵
+      if (!can_pass) continue;
+
+      // 가용 갭 기반으로 실제 사용 가능한 offset 계산
+      // 상대 차량 기준 lateral offset이므로, 갭 내에서 ego가 들어갈 수 있는 offset
+      const double max_usable_offset = available_gap - config_.ego_width * 0.5 - 0.3;  // 0.3m 여유
+
+      for (double base_offset : avoid_cfg.avoidance_offsets) {
+        // 최소 안전 offset 적용 (상대 차량 폭 고려)
+        double avoid_offset = std::max(base_offset, min_safe_offset);
+
+        // 가용 갭을 초과하는 offset은 스킵
+        if (avoid_offset > max_usable_offset) continue;
+
         std::vector<double> avoid_x, avoid_y;
         ref_->getAvoidancePath(idxs, opp_local_idx, pass_side, avoid_offset,
                                 entry_dist, exit_dist,
