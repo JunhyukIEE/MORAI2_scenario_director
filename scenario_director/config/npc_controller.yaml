@@ -16,9 +16,6 @@
     npc.speed_ratio.npc_8: 1.06
     npc.speed_ratio.npc_9: 1.10
 
-    npc.min_speed_ratio: 0.1        # 최소 속도 배율
-    npc.max_speed_ratio: 1.2        # 최대 속도 배율
-
     vehicle.wheelbase: 2.35
     vehicle.max_steering: 0.436
 
