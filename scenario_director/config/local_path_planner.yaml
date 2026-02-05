@@ -7,40 +7,40 @@ local_path_planner:
 
     # Vehicle parameters
     vehicle.wheelbase: 2.35
-    vehicle.max_steer: 0.489        # radians (~28 deg)
+    vehicle.max_steer: 0.436        
     vehicle.max_accel: 3.5          # m/s^2
     vehicle.max_decel: 7.0          # m/s^2
     vehicle.max_lat_accel: 8.5      # m/s^2 (professional driver level)
 
     # Reward weights
     weights.w_progress: 80.0        # Track progress reward
-    weights.w_speed: 1500.0         # Speed reward
+    weights.w_speed: 150.0         # Speed reward
     weights.w_overtake: 60.0        # Overtake reward
-    weights.w_collision: 100000.0    # Collision penalty
-    weights.w_offroad: 15000.0       # Offroad penalty
-    weights.w_smooth: 80.0           # Smoothness penalty
-    weights.w_curv: 2.0             # Curvature penalty
+    weights.w_collision: 1000.0    # Collision penalty
+    weights.w_offroad: 5000.0       # Offroad penalty
+    weights.w_smooth: 0.0           # Smoothness penalty
+    weights.w_curv: 20.0             # Curvature penalty
     weights.w_far_from_ref: 0.0     # Distance from reference line penalty
 
     # Vehicle dimensions (안전 마진 추가)
     ego_length: 4.0
-    ego_width: 1.7
+    ego_width: 2.0
     opp_length: 4.0
-    opp_width: 1.7
+    opp_width: 2.0
 
     # 갭 통과 안전 설정 (벽과 상대차량 사이 공간 체크)
-    pass_gap_margin: 2.0              # 통과 시 필요한 추가 마진 (m)
-    gap_check_distance: 30.0          # 갭 체크할 전방 거리 (m)
-    impassable_penalty: 80000.0       # 통과 불가능 방향 페널티
+    pass_gap_margin: 2.5              # 통과 시 필요한 추가 마진 (m)
+    gap_check_distance: 100.0          # 갭 체크할 전방 거리 (m)
+    impassable_penalty: 8000.0       # 통과 불가능 방향 페널티
 
     # Planning settings
-    dt: 0.03                        # Time step (seconds)
+    dt: 0.1                         # Time step (seconds)
     horizon_s: 5.0                  # Planning horizon
-    path_ahead_m: 500.0             # Path lookahead distance
+    path_ahead_m: 300.0             # Path lookahead distance
     planning_rate_hz: 30.0          # Planning frequency (Hz)
 
     # Candidate generation (더 넓은 측면 오프셋)
-    lateral_offsets: [-3.0, -2.5, -2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0, 2.5, 3.0]
+    lateral_offsets: [-4.0, -3.5, -3.0, -2.5, -2.0, 0.0, 2.0, 2.5, 3.0, 3.5, 4.0]
     speed_scales: [0.80, 0.90, 1.0, 1.10]
 
     # Safety settings
@@ -49,20 +49,8 @@ local_path_planner:
     near_pass_bonus_dist: 0.0       # 근접 보너스
 
     # Hysteresis (방향 변경 페널티 - 갈팡질팡 방지)
-    lat_change_penalty: 800.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)
-    overtake_side_commit_penalty: 5000.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
-
-    # Slow In, Fast Out 전략
-    strategy.slow_in_out.enabled: true
-    strategy.slow_in_out.apex_search_distance: 25.0
-    strategy.slow_in_out.entry_distance: 12.0
-    strategy.slow_in_out.exit_distance: 12.0
-    strategy.slow_in_out.entry_speed_scale: 0.85
-    strategy.slow_in_out.exit_speed_scale: 1.15
-    strategy.slow_in_out.curvature_threshold: 0.08
-    strategy.slow_in_out.aggressive_exit: true
-    strategy.slow_in_out.overtake_exit_speed_scale: 1.15
-    strategy.slow_in_out.overtake_entry_speed_scale: 0.80
+    lat_change_penalty: 8000.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)
+    overtake_side_commit_penalty: 15000.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
 
     # 추월 전략 설정
     # Late Braking (브레이킹 포인트 기반) - out→out(mid)→in(mid) 궤적 자동 생성
@@ -75,22 +63,6 @@ local_path_planner:
     strategy.overtake.late_braking.safety_margin: 1.15         # 브레이킹 거리 안전 마진
     strategy.overtake.late_braking.max_decel_override: 0.0     # 0이면 vehicle.max_decel 사용
     strategy.overtake.late_braking.exit_recovery_distance: 12.0 # apex 후 레이싱라인 복귀 거리 (m)
-
-    # 기존 설정 (deprecated)
-    strategy.overtake.late_brake_distance: 8.0
-    strategy.overtake.late_brake_speed_scale: 0.75
-    strategy.overtake.block_pass_offset: 2.5
-
-    # Dummy (페인트): 한쪽으로 움직이는 척하다 반대편으로 추월
-    strategy.overtake.dummy_trigger_distance: 20.0
-    strategy.overtake.dummy_offset: 1.5
-    strategy.overtake.dummy_duration: 0.5
-    strategy.overtake.dummy_switch_threshold: 0.8
-
-    # Around the Outside: 바깥쪽으로 추월 (S자 코너에서 효과적)
-    strategy.overtake.outside_entry_speed_scale: 0.9
-    strategy.overtake.outside_exit_boost: 1.15
-    strategy.overtake.chicane_detection_dist: 40.0
 
     # 공통 설정
     strategy.overtake.min_corner_curvature: 0.025

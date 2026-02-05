@@ -31,19 +31,6 @@ struct PlannerWeights {
   double w_far_from_ref = 2.0;
 };
 
-struct SlowInOutConfig {
-  bool enabled = true;
-  double apex_search_distance = 25.0;
-  double entry_distance = 12.0;
-  double exit_distance = 12.0;
-  double entry_speed_scale = 0.85;
-  double exit_speed_scale = 1.05;
-  double curvature_threshold = 0.08;
-  bool aggressive_exit = true;
-  double overtake_exit_speed_scale = 1.15;
-  double overtake_entry_speed_scale = 0.80;
-};
-
 struct LateBrakingConfig {
   bool enabled = true;
   double delay_factor = 0.3;              // 브레이킹 포인트를 얼마나 늦출지 (0.0~1.0, 높을수록 늦게)
@@ -60,20 +47,6 @@ struct OvertakeStrategyConfig {
   // Late braking 설정 (브레이킹 포인트 기반)
   LateBrakingConfig late_braking;
 
-  // 기존 설정 (deprecated, late_braking으로 대체됨)
-  double late_brake_distance = 8.0;       // deprecated
-  double late_brake_speed_scale = 0.75;   // deprecated
-  double block_pass_offset = 2.5;
-
-  double dummy_trigger_distance = 20.0;
-  double dummy_offset = 1.5;
-  double dummy_duration = 0.5;
-  double dummy_switch_threshold = 0.8;
-
-  double outside_entry_speed_scale = 0.9;
-  double outside_exit_boost = 1.15;
-  double chicane_detection_dist = 40.0;
-
   double min_corner_curvature = 0.05;
   double apex_search_distance = 50.0;
 
@@ -87,7 +60,6 @@ struct OvertakeStrategyConfig {
 };
 
 struct StrategyConfig {
-  SlowInOutConfig slow_in_out;
   OvertakeStrategyConfig overtake;
 };
 
@@ -143,15 +115,20 @@ struct PlanResult {
   double lat_offset = 0.0;
   double speed_scale = 0.0;
   std::vector<TrajectoryPoint> trajectory;
-  std::vector<std::pair<double, double>> candidate_path;  // (x, y)
+  std::vector<std::pair<double, double>> candidate_path;  // (x, y) 선택된 경로
   std::vector<double> v_desired;
 
   struct DebugCandidate {
     double reward;
     double lat_offset;
     double speed_scale;
+    std::vector<std::pair<double, double>> path;  // 후보 경로 점들
+    bool is_late_braking = false;  // Late Braking 경로 여부
   };
   std::vector<DebugCandidate> debug_top;
+
+  // 모든 후보 경로 (시각화용)
+  std::vector<DebugCandidate> all_candidates;
 };
 
 // -----------------------------
@@ -343,13 +320,6 @@ private:
   // Side commitment during overtake
   int committed_side_ = 0;  // -1: left, 0: none, +1: right
   bool was_overtaking_ = false;
-
-  // Dummy (feint) state
-  bool dummy_active_ = false;
-  int dummy_steps_total_ = 0;
-  int dummy_steps_elapsed_ = 0;
-  int dummy_side_ = 1;
-  bool dummy_has_side_ = false;
 };
 
 }  // namespace scenario_director

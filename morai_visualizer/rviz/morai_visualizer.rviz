@@ -47,7 +47,7 @@ Visualization Manager:
       Name: VehicleMarker
       Namespaces:
         ego_vehicle: true
-        opponent_vehicle: true
+        npc_1_vehicle: true
       Topic:
         Depth: 10
         Durability Policy: Volatile
@@ -93,12 +93,12 @@ Visualization Manager:
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
       Line Style: Lines
-      Line Width: 0.05
+      Line Width: 0.05000000074505806
       Name: PredictedPath
       Offset:
         X: 0
         Y: 0
-        Z: 0.05
+        Z: 0.05000000074505806
       Pose Color: 255; 85; 255
       Pose Style: None
       Radius: 0.029999999329447746
@@ -112,7 +112,7 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /local_planner/predicted_path
       Value: true
-    - Alpha: 0.6
+    - Alpha: 0.6000000238418579
       Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 255; 100; 255
@@ -121,12 +121,12 @@ Visualization Manager:
       Head Length: 0.10000000149011612
       Length: 0.10000000149011612
       Line Style: Lines
-      Line Width: 0.03
+      Line Width: 0.029999999329447746
       Name: CandidatePath
       Offset:
         X: 0
         Y: 0
-        Z: 0.02
+        Z: 0.019999999552965164
       Pose Color: 255; 100; 255
       Pose Style: None
       Radius: 0.019999999552965164
@@ -172,13 +172,25 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        candidate_paths: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /candidate_paths
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        normal: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_planner/all_candidates
       Value: true
   Enabled: true
   Global Options:
@@ -225,7 +237,7 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Angle: 0.0
+      Angle: -0.6699996590614319
       Class: rviz_default_plugins/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
@@ -235,11 +247,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 0.5
+      Scale: 0.8892145752906799
       Target Frame: map
       Value: TopDownOrtho (rviz_default_plugins)
-      X: 900.0
-      Y: -1100.0
+      X: 725.9449462890625
+      Y: -1062.5452880859375
     Saved: ~
 Window Geometry:
   Displays:
@@ -247,13 +259,13 @@ Window Geometry:
   Height: 1016
   Hide Left Dock: false
   Hide Right Dock: true
-  QMainWindow State: 000000ff00000000fd0000000100000000000001f90000039efc0200000004fb000000100044006900730070006c006100790073010000003d0000019c000000c900fffffffb0000000a0056006900650077007301000001df0000012e000000a400fffffffb0000001200530065006c0065006300740069006f006e000000019d000000a90000005c00fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000313000000c80000005c00ffffff000005430000039e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000100000000000001f90000039efc0200000004fb000000100044006900730070006c006100790073010000003d0000019c000000c900fffffffb0000000a0056006900650077007301000001df0000012e000000a400fffffffb0000001200530065006c0065006300740069006f006e000000019d000000a90000005c00fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000313000000c80000005c00ffffff0000053b0000039e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1858
-  X: 62
+  Width: 1850
+  X: 70
   Y: 27

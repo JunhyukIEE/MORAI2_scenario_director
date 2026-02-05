@@ -18,6 +18,7 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -75,6 +76,7 @@ ament_target_dependencies(local_path_planner_node
   std_msgs
   nav_msgs
   geometry_msgs
+  visualization_msgs
   ament_index_cpp
 )
 target_link_libraries(local_path_planner_node scenario_core)

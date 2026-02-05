@@ -7,6 +7,7 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int32.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "scenario_director/local_path_planner.hpp"
@@ -83,18 +84,6 @@ public:
     declare_parameter<double>("lat_change_penalty", 15.0);
     declare_parameter<double>("overtake_side_commit_penalty", 3000.0);
 
-    // Slow In, Fast Out strategy
-    declare_parameter<bool>("strategy.slow_in_out.enabled", true);
-    declare_parameter<double>("strategy.slow_in_out.apex_search_distance", 25.0);
-    declare_parameter<double>("strategy.slow_in_out.entry_distance", 12.0);
-    declare_parameter<double>("strategy.slow_in_out.exit_distance", 12.0);
-    declare_parameter<double>("strategy.slow_in_out.entry_speed_scale", 0.85);
-    declare_parameter<double>("strategy.slow_in_out.exit_speed_scale", 1.05);
-    declare_parameter<double>("strategy.slow_in_out.curvature_threshold", 0.08);
-    declare_parameter<bool>("strategy.slow_in_out.aggressive_exit", true);
-    declare_parameter<double>("strategy.slow_in_out.overtake_exit_speed_scale", 1.15);
-    declare_parameter<double>("strategy.slow_in_out.overtake_entry_speed_scale", 0.80);
-
     // Late Braking (브레이킹 포인트 기반)
     declare_parameter<bool>("strategy.overtake.late_braking.enabled", true);
     declare_parameter<double>("strategy.overtake.late_braking.delay_factor", 0.3);
@@ -106,17 +95,7 @@ public:
     declare_parameter<double>("strategy.overtake.late_braking.max_decel_override", 0.0);
     declare_parameter<double>("strategy.overtake.late_braking.exit_recovery_distance", 15.0);
 
-    // Overtake strategies (deprecated, kept for compatibility)
-    declare_parameter<double>("strategy.overtake.late_brake_distance", 8.0);
-    declare_parameter<double>("strategy.overtake.late_brake_speed_scale", 0.75);
-    declare_parameter<double>("strategy.overtake.block_pass_offset", 2.5);
-    declare_parameter<double>("strategy.overtake.dummy_trigger_distance", 20.0);
-    declare_parameter<double>("strategy.overtake.dummy_offset", 1.5);
-    declare_parameter<double>("strategy.overtake.dummy_duration", 0.5);
-    declare_parameter<double>("strategy.overtake.dummy_switch_threshold", 0.8);
-    declare_parameter<double>("strategy.overtake.outside_entry_speed_scale", 0.9);
-    declare_parameter<double>("strategy.overtake.outside_exit_boost", 1.15);
-    declare_parameter<double>("strategy.overtake.chicane_detection_dist", 40.0);
+    // Overtake strategies
     declare_parameter<double>("strategy.overtake.min_corner_curvature", 0.05);
     declare_parameter<double>("strategy.overtake.apex_search_distance", 50.0);
     declare_parameter<double>("strategy.overtake.approach_speed_boost", 1.05);
@@ -180,26 +159,6 @@ public:
     config.lat_change_penalty = get_parameter("lat_change_penalty").as_double();
     config.overtake_side_commit_penalty = get_parameter("overtake_side_commit_penalty").as_double();
 
-    config.strategy.slow_in_out.enabled = get_parameter("strategy.slow_in_out.enabled").as_bool();
-    config.strategy.slow_in_out.apex_search_distance =
-        get_parameter("strategy.slow_in_out.apex_search_distance").as_double();
-    config.strategy.slow_in_out.entry_distance =
-        get_parameter("strategy.slow_in_out.entry_distance").as_double();
-    config.strategy.slow_in_out.exit_distance =
-        get_parameter("strategy.slow_in_out.exit_distance").as_double();
-    config.strategy.slow_in_out.entry_speed_scale =
-        get_parameter("strategy.slow_in_out.entry_speed_scale").as_double();
-    config.strategy.slow_in_out.exit_speed_scale =
-        get_parameter("strategy.slow_in_out.exit_speed_scale").as_double();
-    config.strategy.slow_in_out.curvature_threshold =
-        get_parameter("strategy.slow_in_out.curvature_threshold").as_double();
-    config.strategy.slow_in_out.aggressive_exit =
-        get_parameter("strategy.slow_in_out.aggressive_exit").as_bool();
-    config.strategy.slow_in_out.overtake_exit_speed_scale =
-        get_parameter("strategy.slow_in_out.overtake_exit_speed_scale").as_double();
-    config.strategy.slow_in_out.overtake_entry_speed_scale =
-        get_parameter("strategy.slow_in_out.overtake_entry_speed_scale").as_double();
-
     // Late Braking config
     config.strategy.overtake.late_braking.enabled =
         get_parameter("strategy.overtake.late_braking.enabled").as_bool();
@@ -220,27 +179,6 @@ public:
     config.strategy.overtake.late_braking.exit_recovery_distance =
         get_parameter("strategy.overtake.late_braking.exit_recovery_distance").as_double();
 
-    // Deprecated (kept for compatibility)
-    config.strategy.overtake.late_brake_distance =
-        get_parameter("strategy.overtake.late_brake_distance").as_double();
-    config.strategy.overtake.late_brake_speed_scale =
-        get_parameter("strategy.overtake.late_brake_speed_scale").as_double();
-    config.strategy.overtake.block_pass_offset =
-        get_parameter("strategy.overtake.block_pass_offset").as_double();
-    config.strategy.overtake.dummy_trigger_distance =
-        get_parameter("strategy.overtake.dummy_trigger_distance").as_double();
-    config.strategy.overtake.dummy_offset =
-        get_parameter("strategy.overtake.dummy_offset").as_double();
-    config.strategy.overtake.dummy_duration =
-        get_parameter("strategy.overtake.dummy_duration").as_double();
-    config.strategy.overtake.dummy_switch_threshold =
-        get_parameter("strategy.overtake.dummy_switch_threshold").as_double();
-    config.strategy.overtake.outside_entry_speed_scale =
-        get_parameter("strategy.overtake.outside_entry_speed_scale").as_double();
-    config.strategy.overtake.outside_exit_boost =
-        get_parameter("strategy.overtake.outside_exit_boost").as_double();
-    config.strategy.overtake.chicane_detection_dist =
-        get_parameter("strategy.overtake.chicane_detection_dist").as_double();
     config.strategy.overtake.min_corner_curvature =
         get_parameter("strategy.overtake.min_corner_curvature").as_double();
     config.strategy.overtake.apex_search_distance =
@@ -299,6 +237,8 @@ public:
         "/local_planner/path_speeds", 10);
     predicted_path_pub_ = create_publisher<nav_msgs::msg::Path>("/local_planner/predicted_path", 10);
     candidate_path_pub_ = create_publisher<nav_msgs::msg::Path>("/local_planner/candidate_path", 10);
+    all_candidates_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+        "/local_planner/all_candidates", 10);
     reward_pub_ = create_publisher<std_msgs::msg::Float64>("/local_planner/reward", 10);
     lat_offset_pub_ = create_publisher<std_msgs::msg::Float64>("/local_planner/lat_offset", 10);
 
@@ -491,6 +431,75 @@ private:
     }
     candidate_path_pub_->publish(cand_msg);
 
+    // Publish all candidate paths as MarkerArray (시각화용)
+    visualization_msgs::msg::MarkerArray markers;
+
+    // 먼저 이전 마커들 삭제
+    visualization_msgs::msg::Marker delete_marker;
+    delete_marker.header.stamp = now();
+    delete_marker.header.frame_id = "map";
+    delete_marker.action = visualization_msgs::msg::Marker::DELETEALL;
+    markers.markers.push_back(delete_marker);
+
+    // reward 범위 계산 (색상 매핑용)
+    double min_reward = std::numeric_limits<double>::max();
+    double max_reward = std::numeric_limits<double>::lowest();
+    for (const auto& cand : result.all_candidates) {
+      min_reward = std::min(min_reward, cand.reward);
+      max_reward = std::max(max_reward, cand.reward);
+    }
+    double reward_range = std::max(max_reward - min_reward, 1.0);
+
+    int marker_id = 0;
+    for (const auto& cand : result.all_candidates) {
+      if (cand.path.empty()) continue;
+
+      visualization_msgs::msg::Marker marker;
+      marker.header.stamp = now();
+      marker.header.frame_id = "map";
+      marker.ns = cand.is_late_braking ? "late_braking" : "normal";
+      marker.id = marker_id++;
+      marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+      marker.action = visualization_msgs::msg::Marker::ADD;
+
+      marker.scale.x = 0.15;  // 선 두께
+
+      // 색상: reward에 따라 빨강(낮음) → 초록(높음), Late Braking은 파랑 계열
+      double t = (cand.reward - min_reward) / reward_range;
+      if (cand.is_late_braking) {
+        // Late Braking: 파랑 ~ 청록
+        marker.color.r = 0.0;
+        marker.color.g = t * 0.8;
+        marker.color.b = 0.8 + t * 0.2;
+        marker.color.a = 0.6;
+      } else {
+        // 일반 경로: 빨강 → 노랑 → 초록
+        if (t < 0.5) {
+          marker.color.r = 1.0;
+          marker.color.g = t * 2.0;
+          marker.color.b = 0.0;
+        } else {
+          marker.color.r = 1.0 - (t - 0.5) * 2.0;
+          marker.color.g = 1.0;
+          marker.color.b = 0.0;
+        }
+        marker.color.a = 0.4;
+      }
+
+      // 포인트 추가 (간격 조절)
+      for (size_t i = 0; i < cand.path.size(); i += 5) {
+        geometry_msgs::msg::Point pt;
+        pt.x = cand.path[i].first;
+        pt.y = cand.path[i].second;
+        pt.z = 0.1;
+        marker.points.push_back(pt);
+      }
+
+      markers.markers.push_back(marker);
+    }
+
+    all_candidates_pub_->publish(markers);
+
     // Publish reward
     std_msgs::msg::Float64 reward_msg;
     reward_msg.data = result.reward;
@@ -526,6 +535,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr path_speed_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr predicted_path_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr candidate_path_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr all_candidates_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr reward_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lat_offset_pub_;
 
