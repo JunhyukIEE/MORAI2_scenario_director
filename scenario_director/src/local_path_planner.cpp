@@ -289,7 +289,8 @@ void ReferenceLine::getAvoidancePath(const std::vector<int>& indices,
   }
 
   // pass_side: +1 = 오른쪽으로 회피, -1 = 왼쪽으로 회피
-  const double target_offset = pass_side * pass_offset;
+  // 법선 벡터가 CCW (왼쪽=양수) 이므로, 오른쪽(+1)은 음수 offset 필요
+  const double target_offset = -pass_side * pass_offset;
 
   // 상대 차량 위치 기준으로 entry/exit 인덱스 계산
   // entry: 상대 앞 entry_distance 지점
@@ -493,7 +494,9 @@ LocalPathPlanner::LocalPathPlanner(const std::string& map_dir,
 }
 
 double LocalPathPlanner::wrapPi(double angle) {
-  return std::fmod(angle + M_PI, 2.0 * M_PI) - M_PI;
+  angle = std::fmod(angle + M_PI, 2.0 * M_PI);
+  if (angle < 0.0) angle += 2.0 * M_PI;
+  return angle - M_PI;
 }
 
 std::array<std::array<double, 2>, 4> LocalPathPlanner::obbCorners(
@@ -896,12 +899,15 @@ double LocalPathPlanner::computeReward(
   // Lateral offset penalty
   R -= W.w_far_from_ref * std::abs(lat_offset);
 
-  // Offroad check: 트랙 밖 경로는 완전히 제외
+  // Offroad penalty: 트랙 밖 점 수에 비례한 점진적 페널티
+  int offroad_cnt = 0;
   for (int t = 0; t < T; t += config_.offroad_check_stride) {
-    if (!checker_.isDrivable(traj[t].x, traj[t].y)) {
-      // offroad 점이 하나라도 있으면 이 경로는 선택 불가
-      return -std::numeric_limits<double>::max();
+    if (!checker_.isDrivableWithMargin(traj[t].x, traj[t].y, config_.ego_width * 0.5)) {
+      ++offroad_cnt;
     }
+  }
+  if (offroad_cnt > 0) {
+    R -= W.w_offroad * offroad_cnt;
   }
 
   // Collision penalty (OBB)
@@ -957,7 +963,7 @@ double LocalPathPlanner::computeReward(
 
 PlanResult LocalPathPlanner::plan(
     double ego_x, double ego_y, double ego_yaw, double ego_v,
-    double opp_x, double opp_y, double opp_v,
+    double opp_x, double opp_y, double opp_yaw, double opp_v,
     bool overtake_flag, int overtake_phase) {
 
   // Overtake phases: 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
@@ -1031,18 +1037,13 @@ PlanResult LocalPathPlanner::plan(
                              forward_to_opp <= config_.strategy.overtake.slipstream_distance &&
                              std::abs(lateral_to_opp) < 2.0;
 
-  // 추월 방향 결정 (상대의 반대편으로)
-  const int overtake_side = (lateral_to_opp > 0.0) ? -1 : 1;  // 상대가 오른쪽이면 왼쪽으로 추월
-
   // 상대 차량과 벽 사이 갭 체크 (전방에 있고 가까울 때만)
   PassabilityInfo passability;
   double opp_lat_offset_from_ref = 0.0;  // 상대 차량의 reference line 기준 lateral offset
   const bool check_gap = opp_ahead && forward_to_opp < config_.gap_check_distance;
   if (check_gap) {
-    // 상대 차량의 yaw 추정 (레퍼런스 라인 기준)
     int opp_idx = ref_->nearestIndex(opp_x, opp_y);
-    double opp_yaw_est = ref_->yaw()[opp_idx];
-    passability = checkPassability(opp_x, opp_y, opp_yaw_est);
+    passability = checkPassability(opp_x, opp_y, opp_yaw);
 
     // 상대 차량의 reference line 기준 lateral offset 계산
     double ref_x = ref_->x()[opp_idx];
@@ -1052,6 +1053,36 @@ PlanResult LocalPathPlanner::plan(
     double dy_to_opp = opp_y - ref_y;
     // 양수 = 상대가 reference line 오른쪽에 있음
     opp_lat_offset_from_ref = -dx_to_opp * std::sin(ref_yaw) + dy_to_opp * std::cos(ref_yaw);
+  }
+
+  // 추월 방향 결정: passability 기반 → lateral 위치 기반 fallback
+  int overtake_side;
+  if (check_gap && passability.left_passable != passability.right_passable) {
+    // 한쪽만 통과 가능하면 그쪽으로 추월
+    overtake_side = passability.right_passable ? 1 : -1;
+  } else if (check_gap && passability.left_passable && passability.right_passable) {
+    // 양쪽 다 가능하면 갭이 더 넓은 쪽으로 추월
+    overtake_side = (passability.right_gap >= passability.left_gap) ? 1 : -1;
+  } else {
+    // passability 정보 없으면 상대 반대편으로 fallback
+    overtake_side = (lateral_to_opp > 0.0) ? -1 : 1;
+  }
+
+  // committed_side_가 현재 passability와 충돌하면 갱신
+  if (overtake_active && committed_side_ != 0 && check_gap) {
+    const bool committed_passable = (committed_side_ > 0) ? passability.right_passable
+                                                           : passability.left_passable;
+    if (!committed_passable) {
+      const bool opposite_passable = (committed_side_ > 0) ? passability.left_passable
+                                                             : passability.right_passable;
+      if (opposite_passable) {
+        // 반대쪽이 통과 가능하면 전환
+        committed_side_ = -committed_side_;
+      } else {
+        // 양쪽 다 불가능하면 리셋 (추월 포기)
+        committed_side_ = 0;
+      }
+    }
   }
 
   const int corner_sign =
@@ -1081,147 +1112,41 @@ PlanResult LocalPathPlanner::plan(
 
   std::vector<PlanResult::DebugCandidate> debug_results;
 
-  for (double lat : config_.lateral_offsets) {
-    // Generate candidate path
+  // ============================================
+  // 기본 경로 후보: reference line (offset=0) — 속도 스케일만 변화
+  // 회피/추월은 동적 회피 경로와 late braking에서 처리
+  // ============================================
+  {
+    const double lat = 0.0;
     std::vector<double> cand_x, cand_y;
     ref_->getShiftedLine(idxs, lat, cand_x, cand_y);
 
-    // Compute curvature for candidate
     std::vector<double> cand_kappa = computeCurvature(cand_x, cand_y);
 
     for (double sc : config_.speed_scales) {
-      // Compute desired velocity
       std::vector<double> v_des(idxs.size());
       for (size_t i = 0; i < idxs.size(); ++i) {
-        double v = base_v[i] * sc;
-
-        // Phase-based speed adjustments
-        if (phase_approach && in_slipstream) {
-          // 접근 단계 + 슬립스트림: 속도 부스트
-          v *= config_.strategy.overtake.slipstream_speed_boost;
-        }
-        if (phase_position || phase_execute) {
-          // 위치 선점/실행 단계: 공격적 속도
-          v *= config_.strategy.overtake.execute_speed_boost;
-        }
-
-        v_des[i] = std::min(v, v_cap[i]);
+        v_des[i] = std::min(base_v[i] * sc, v_cap[i]);
       }
 
-      // Rollout trajectory
       std::vector<TrajectoryPoint> traj = rolloutFollowPath(
           ego_x, ego_y, ego_yaw, ego_v, cand_x, cand_y, v_des);
 
-      // Compute reward
       double R = computeReward(traj, cand_kappa, lat,
                                opp_future_x, opp_future_y, opp_future_yaw);
 
-      // ============================================
-      // 갭 통과 가능성 페널티 (벽과 상대차량 사이)
-      // ============================================
-      // 갭 통과 가능성 체크: 가까운 거리에서만 적용 (20m 이내)
-      const double close_gap_check_dist = 20.0;
-      if (check_gap && forward_to_opp < close_gap_check_dist) {
-        // 상대 차량의 lateral offset을 고려하여 실제 통과 방향 결정
-        const double pass_side_threshold = 0.5;
-        const double lat_diff = lat - opp_lat_offset_from_ref;
-
-        // 통과 불가능한 쪽으로만 페널티 적용
-        if (lat_diff > pass_side_threshold && !passability.right_passable) {
-          // 오른쪽으로 가려는데 갭 부족
-          R -= config_.impassable_penalty;
-        } else if (lat_diff < -pass_side_threshold && !passability.left_passable) {
-          // 왼쪽으로 가려는데 갭 부족
-          R -= config_.impassable_penalty;
-        }
-
-        // 통과 가능한 쪽으로 유도하는 보너스
-        if (lat_diff > pass_side_threshold && passability.right_passable) {
-          R += config_.weights.w_overtake * 0.5;  // 오른쪽 통과 가능 보너스
-        }
-        if (lat_diff < -pass_side_threshold && passability.left_passable) {
-          R += config_.weights.w_overtake * 0.5;  // 왼쪽 통과 가능 보너스
-        }
-      }
-
-      // Apply hysteresis: penalize changing lateral offset direction
-      // 추월 중이 아닐 때만 강한 페널티 적용 (추월 시작은 허용)
+      // Hysteresis: reference line 복귀 시 offset 변화 페널티
       if (has_prev_offset_) {
         double offset_change = std::abs(lat - prev_lat_offset_);
-
-        // 추월 활성화 시 페널티 대폭 감소 (추월 시작 허용)
         double penalty_scale = overtake_active ? 0.1 : 1.0;
         R -= config_.lat_change_penalty * offset_change * penalty_scale;
-
-        // 추월 중 사이드 변경만 페널티 (추월 시작은 허용)
-        if (overtake_active && committed_side_ != 0) {
-          if ((lat > 0.0 && prev_lat_offset_ < 0.0) || (lat < 0.0 && prev_lat_offset_ > 0.0)) {
-            R -= config_.lat_change_penalty;  // 사이드 변경 페널티
-          }
-        }
       }
 
-      // Side commitment during overtake: strongly penalize switching sides
-      if (overtake_active && committed_side_ != 0) {
-        const int lat_sign = (lat > 0.1) ? 1 : ((lat < -0.1) ? -1 : 0);
-        if (lat_sign != 0 && lat_sign != committed_side_) {
-          // Trying to switch to the opposite side during overtake
-          R -= config_.overtake_side_commit_penalty;
-        }
+      // 슬립스트림 보너스 (reference line 위에서 상대 뒤에 있을 때)
+      if (phase_approach && in_slipstream) {
+        R += config_.strategy.overtake.gap_reward_scale * 0.5;
       }
 
-      // ============================================
-      // Phase-based overtake strategy rewards
-      // ============================================
-      const double gap_scale = config_.strategy.overtake.gap_reward_scale;
-      const double target_offset = config_.strategy.overtake.position_lateral_offset;
-      const int lat_sign = (lat > 0.1) ? 1 : ((lat < -0.1) ? -1 : 0);
-
-      if (phase_approach) {
-        // 접근 단계: 슬립스트림 위치 유지 (중앙), 추월 방향 준비
-        if (in_slipstream && std::abs(lat) < 1.0) {
-          R += gap_scale * 0.5;  // 슬립스트림 보너스
-        }
-        // 추월 방향으로 약간 이동 유도
-        if (lat_sign == overtake_side) {
-          R += gap_scale * 0.3;
-        }
-      }
-
-      if (phase_position) {
-        // 위치 선점 단계: 상대 옆으로 적극적으로 이동
-        const double target_lat = overtake_side * target_offset;
-        const double dist_to_target = std::abs(lat - target_lat);
-        R -= gap_scale * dist_to_target;  // 목표 위치에 가까울수록 보상
-
-        // 목표 사이드에 있으면 보너스
-        if (lat_sign == overtake_side) {
-          R += gap_scale * 1.5;
-        }
-      }
-
-      if (phase_execute) {
-        // 실행 단계: 나란히 또는 앞서가기
-        const double target_lat = overtake_side * target_offset;
-        const double dist_to_target = std::abs(lat - target_lat);
-        R -= gap_scale * 0.5 * dist_to_target;
-
-        // 상대 옆에 나란히 있으면 큰 보너스
-        if (opp_beside && lat_sign == overtake_side) {
-          R += gap_scale * 2.0;
-        }
-
-        // 앞으로 나가는 것에 추가 보상
-        R += config_.weights.w_overtake * 1.5;
-      }
-
-      if (phase_complete) {
-        // 완료 단계: 안전하게 앞으로 복귀
-        // 레이싱 라인(중앙)으로 부드럽게 복귀 유도
-        R -= gap_scale * 0.3 * std::abs(lat);
-      }
-
-      // 후보 경로 저장 (시각화용)
       PlanResult::DebugCandidate debug_cand;
       debug_cand.reward = R;
       debug_cand.lat_offset = lat;
@@ -1249,16 +1174,22 @@ PlanResult LocalPathPlanner::plan(
   // ============================================
   // 동적 회피 경로 후보 생성 (상대 차량 위치 기반)
   // ============================================
-  if (opp_ahead && forward_to_opp < 50.0) {
+  if (opp_ahead && forward_to_opp < config_.gap_check_distance) {
     // 상대 차량의 reference line 상 인덱스 찾기
     int opp_ref_idx = ref_->nearestIndex(opp_x, opp_y);
 
-    // idxs 배열 내에서 상대 위치에 해당하는 인덱스 찾기
+    // idxs 배열 내에서 상대 위치에 해당하는 인덱스 찾기 (loop wrap-around 고려)
     size_t opp_local_idx = 0;
-    for (size_t i = 0; i < idxs.size(); ++i) {
-      if (idxs[i] >= opp_ref_idx) {
-        opp_local_idx = i;
-        break;
+    {
+      int N_ref = static_cast<int>(ref_->size());
+      double min_circ_dist = std::numeric_limits<double>::max();
+      for (size_t i = 0; i < idxs.size(); ++i) {
+        int diff = std::abs(idxs[i] - opp_ref_idx);
+        if (diff > N_ref / 2) diff = N_ref - diff;
+        if (static_cast<double>(diff) < min_circ_dist) {
+          min_circ_dist = static_cast<double>(diff);
+          opp_local_idx = i;
+        }
       }
     }
 
@@ -1304,11 +1235,17 @@ PlanResult LocalPathPlanner::plan(
         // Compute curvature
         std::vector<double> avoid_kappa = computeCurvature(avoid_x, avoid_y);
 
-        // 속도 프로파일: execute_speed_boost 적용
+        // 속도 프로파일: phase별 속도 부스트 적용
         std::vector<double> v_des(idxs.size());
         for (size_t i = 0; i < idxs.size(); ++i) {
           double v = base_v[i];
-          if (overtake_active) {
+          if (phase_approach) {
+            if (in_slipstream) {
+              v *= avoid_cfg.slipstream_speed_boost;
+            } else {
+              v *= avoid_cfg.approach_speed_boost;
+            }
+          } else if (phase_position || phase_execute) {
             v *= avoid_cfg.execute_speed_boost;
           }
           v_des[i] = std::min(v, v_cap[i]);
@@ -1322,22 +1259,61 @@ PlanResult LocalPathPlanner::plan(
         double R = computeReward(traj, avoid_kappa, pass_side * avoid_offset,
                                  opp_future_x, opp_future_y, opp_future_yaw);
 
-        // 통과 불가능하면 페널티
-        if (!can_pass) {
-          R -= config_.impassable_penalty;
-        }
-
         // 회피 경로 보너스 (상대가 가까울수록)
         double proximity_bonus = std::max(0.0, 30.0 - forward_to_opp) * 10.0;
         R += proximity_bonus;
 
-        // 추월 활성화 시 추가 보너스
-        if (overtake_active) {
-          R += config_.weights.w_overtake * 2.0;
+        // 추월 방향과 일치하면 보너스
+        if (pass_side == overtake_side) {
+          R += config_.strategy.overtake.gap_reward_scale;
+        }
 
-          // 추월 방향과 일치하면 보너스
+        // ============================================
+        // Phase별 동적 회피 보상
+        // ============================================
+        const double gap_scale = config_.strategy.overtake.gap_reward_scale;
+        const double target_offset_val = config_.strategy.overtake.position_lateral_offset;
+
+        if (phase_approach) {
+          // 접근 단계: 회피 방향 준비
           if (pass_side == overtake_side) {
-            R += config_.strategy.overtake.gap_reward_scale;
+            R += gap_scale * 0.3;
+          }
+        }
+
+        if (phase_position) {
+          // 위치 선점: 목표 offset에 가까울수록 보상
+          const double target_lat = overtake_side * target_offset_val;
+          const double actual_lat = pass_side * avoid_offset;
+          const double dist_to_target = std::abs(actual_lat - target_lat);
+          R -= gap_scale * dist_to_target;
+
+          if (pass_side == overtake_side) {
+            R += gap_scale * 1.5;
+          }
+        }
+
+        if (phase_execute) {
+          // 실행 단계: 나란히 또는 앞서가기
+          if (pass_side == overtake_side) {
+            R += gap_scale * 2.0;
+          }
+          if (opp_beside) {
+            R += gap_scale * 1.0;
+          }
+          // 앞으로 나가는 것에 추가 보상
+          R += config_.weights.w_overtake * 1.5;
+        }
+
+        if (phase_complete) {
+          // 완료: offset이 작을수록 보상 (reference line 복귀 유도)
+          R -= gap_scale * 0.3 * avoid_offset;
+        }
+
+        // Side commitment: 추월 중 사이드 변경 페널티
+        if (overtake_active && committed_side_ != 0) {
+          if (pass_side != committed_side_) {
+            R -= config_.overtake_side_commit_penalty;
           }
         }
 
@@ -1435,9 +1411,8 @@ PlanResult LocalPathPlanner::plan(
         R += config_.strategy.overtake.gap_reward_scale * 2.5;  // 실행 단계에서 late braking 적극 권장
       }
 
-      // Late Braking 경로 갭 체크 (가까운 거리에서만)
-      const double close_gap_check_dist_lb = 20.0;
-      if (check_gap && forward_to_opp < close_gap_check_dist_lb) {
+      // Late Braking 경로 갭 체크
+      if (check_gap) {
         const double pass_side_threshold = 0.5;
         const double lat_diff = avg_lat_offset - opp_lat_offset_from_ref;
 
@@ -1497,7 +1472,18 @@ PlanResult LocalPathPlanner::plan(
         committed_side_ = 1;
       } else if (best.lat_offset < -0.1) {
         committed_side_ = -1;
+      } else {
+        committed_side_ = overtake_side;
       }
+    } else {
+      // 추월 진행 중: 실제 선택된 경로 방향으로 committed_side 갱신
+      // (상단에서 passability 기반 전환이 이미 적용된 상태)
+      if (best.lat_offset > 0.1) {
+        committed_side_ = 1;
+      } else if (best.lat_offset < -0.1) {
+        committed_side_ = -1;
+      }
+      // lat_offset ≈ 0이면 기존 committed_side 유지
     }
     was_overtaking_ = true;
   } else {

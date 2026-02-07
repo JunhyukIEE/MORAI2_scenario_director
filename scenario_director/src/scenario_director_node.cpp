@@ -76,7 +76,6 @@ public:
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.3);
     declare_parameter<double>("overtake.trigger_distance", 30.0);
-    declare_parameter<double>("overtake.approach_distance", 20.0);
     declare_parameter<double>("overtake.position_distance", 10.0);
     declare_parameter<double>("overtake.execute_distance", 5.0);
     declare_parameter<double>("overtake.complete_distance", 8.0);
@@ -116,7 +115,6 @@ public:
     max_brake_ = get_parameter("control.max_brake").as_double();
     max_steering_ = cfg.max_steering;
     overtake_trigger_distance_ = get_parameter("overtake.trigger_distance").as_double();
-    overtake_approach_distance_ = get_parameter("overtake.approach_distance").as_double();
     overtake_position_distance_ = get_parameter("overtake.position_distance").as_double();
     overtake_execute_distance_ = get_parameter("overtake.execute_distance").as_double();
     overtake_complete_distance_ = get_parameter("overtake.complete_distance").as_double();
@@ -201,6 +199,9 @@ private:
       local_path_.push_back(wp);
     }
     has_local_path_ = !local_path_.empty();
+    if (has_local_path_) {
+      last_local_path_time_ = now();
+    }
   }
 
   void localSpeedCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
@@ -248,7 +249,9 @@ private:
     double target_speed = target.speed;
 
     // Use local path from local_path_planner when overtake is active
-    if (overtake_active && has_local_path_) {
+    const bool local_path_fresh = has_local_path_ &&
+        (now() - last_local_path_time_).seconds() < 0.5;
+    if (overtake_active && local_path_fresh) {
       std::lock_guard<std::mutex> lock(local_path_mutex_);
       if (local_path_.size() >= 2) {
         size_t target_idx = getLookaheadIndexOnPath(x_, y_, lookahead, local_path_);
@@ -307,8 +310,15 @@ private:
     // Find nearest NPC ahead
     int nearest_npc = findNearestNPCAhead();
 
-    if (nearest_npc < 0) {
-      // No NPC ahead
+    // 추월 진행 중이면 target NPC 유지, 아니면 nearest 사용
+    int eval_npc = nearest_npc;
+    if (overtake_state_ == OvertakeState::ACTIVE && target_npc_id_ >= 0 &&
+        target_npc_id_ < NUM_NPCS && npc_states_[target_npc_id_].has_pose) {
+      eval_npc = target_npc_id_;
+    }
+
+    if (eval_npc < 0) {
+      // No NPC to evaluate
       if (overtake_state_ == OvertakeState::ACTIVE) {
         overtake_phase_ = OvertakePhase::NONE;
         overtake_state_ = OvertakeState::NONE;
@@ -320,7 +330,7 @@ private:
     }
 
     // Get NPC state
-    const NPCState& npc = npc_states_[nearest_npc];
+    const NPCState& npc = npc_states_[eval_npc];
     const double dx = npc.x - x_;
     const double dy = npc.y - y_;
     const double dist = std::sqrt(dx * dx + dy * dy);
@@ -336,13 +346,13 @@ private:
     // State machine
     switch (overtake_phase_) {
       case OvertakePhase::NONE:
-        if (is_ahead && dist <= overtake_trigger_distance_) {
+        if (is_ahead && dist <= overtake_trigger_distance_ && has_speed_advantage) {
           overtake_phase_ = OvertakePhase::APPROACH;
           overtake_state_ = OvertakeState::ACTIVE;
           overtake_start_time_ = now();
-          target_npc_id_ = nearest_npc;
+          target_npc_id_ = eval_npc;
           RCLCPP_INFO(get_logger(), "Overtake APPROACH NPC_%d: dist=%.1f m, speed_diff=%.1f m/s",
-                      nearest_npc + 1, dist, speed_diff);
+                      eval_npc + 1, dist, speed_diff);
         }
         break;
 
@@ -365,8 +375,8 @@ private:
 
       case OvertakePhase::POSITION:
         if (!is_ahead && !is_beside) {
-          overtake_phase_ = OvertakePhase::COMPLETE;
-          RCLCPP_INFO(get_logger(), "Overtake COMPLETE: passed NPC_%d", target_npc_id_ + 1);
+          overtake_phase_ = OvertakePhase::EXECUTE;
+          RCLCPP_INFO(get_logger(), "Overtake EXECUTE (fast pass) NPC_%d", target_npc_id_ + 1);
         } else if (dist > overtake_trigger_distance_ * 1.2) {
           overtake_phase_ = OvertakePhase::NONE;
           overtake_state_ = OvertakeState::NONE;
@@ -473,7 +483,6 @@ private:
   double max_brake_ = 1.0;
   double max_steering_ = 0.55;
   double overtake_trigger_distance_ = 30.0;
-  double overtake_approach_distance_ = 20.0;
   double overtake_position_distance_ = 10.0;
   double overtake_execute_distance_ = 5.0;
   double overtake_complete_distance_ = 8.0;
@@ -498,6 +507,7 @@ private:
   std::vector<double> local_path_speeds_;
   bool has_local_path_ = false;
   bool has_local_speeds_ = false;
+  rclcpp::Time last_local_path_time_;
 
   // Overtake state
   enum class OvertakePhase { NONE = 0, APPROACH = 1, POSITION = 2, EXECUTE = 3, COMPLETE = 4 };

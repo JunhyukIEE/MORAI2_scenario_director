@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 
 namespace scenario_director {
 
@@ -138,19 +139,20 @@ public:
 
 private:
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    if (!has_pose_) {
-      has_pose_ = true;
-    }
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    has_pose_ = true;
     x_ = msg->pose.pose.position.x;
     y_ = msg->pose.pose.position.y;
     yaw_ = quaternionToYaw(msg->pose.pose.orientation);
   }
 
   void velocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
     speed_ = msg->data;
   }
 
   void egoOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
     ego_x_ = msg->pose.pose.position.x;
     ego_y_ = msg->pose.pose.position.y;
     ego_yaw_ = quaternionToYaw(msg->pose.pose.orientation);
@@ -158,6 +160,7 @@ private:
   }
 
   void egoVelocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
     ego_speed_ = msg->data;
   }
 
@@ -170,29 +173,31 @@ private:
     double brake_amount = 0.0;
   };
 
-  CollisionRisk evaluateCollisionRisk() {
+  CollisionRisk evaluateCollisionRisk(double npc_x, double npc_y, double npc_yaw, double npc_speed,
+                                       double eg_x, double eg_y, double eg_speed,
+                                       bool has_ego) {
     CollisionRisk risk;
 
-    if (!collision_avoidance_enabled_ || !has_ego_pose_) {
+    if (!collision_avoidance_enabled_ || !has_ego) {
       return risk;
     }
 
     // Calculate relative position
-    const double dx = ego_x_ - x_;
-    const double dy = ego_y_ - y_;
+    const double dx = eg_x - npc_x;
+    const double dy = eg_y - npc_y;
     const double distance = std::sqrt(dx * dx + dy * dy);
     risk.distance = distance;
 
     // Calculate relative angle (ego relative to NPC's heading)
     const double abs_angle = std::atan2(dy, dx);
-    double rel_angle = abs_angle - yaw_;
+    double rel_angle = abs_angle - npc_yaw;
     rel_angle = std::atan2(std::sin(rel_angle), std::cos(rel_angle));
 
     // Check if ego is in front of NPC (within ±60 degrees)
     const bool ego_in_front = std::abs(rel_angle) < (60.0 * M_PI / 180.0);
 
     // Calculate lateral distance (perpendicular to NPC's heading)
-    const double lateral_dist = std::abs(dx * (-std::sin(yaw_)) + dy * std::cos(yaw_));
+    const double lateral_dist = std::abs(dx * (-std::sin(npc_yaw)) + dy * std::cos(npc_yaw));
 
     // Check if ego is on the same lane (within side margin)
     const bool same_lane = lateral_dist < side_margin_;
@@ -202,7 +207,7 @@ private:
     }
 
     // Calculate Time To Collision (TTC)
-    const double closing_speed = speed_ - ego_speed_;
+    const double closing_speed = npc_speed - eg_speed;
     if (closing_speed > 0.1) {
       risk.ttc = distance / closing_speed;
     }
@@ -229,15 +234,29 @@ private:
   }
 
   void controlLoop() {
-    if (!has_pose_ || !line_) {
+    // Snapshot mutable state under mutex
+    double lx, ly, lyaw, lspeed;
+    bool lhas_pose;
+    double leg_x, leg_y, leg_speed;
+    bool lhas_ego;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      lx = x_; ly = y_; lyaw = yaw_; lspeed = speed_;
+      lhas_pose = has_pose_;
+      leg_x = ego_x_; leg_y = ego_y_; leg_speed = ego_speed_;
+      lhas_ego = has_ego_pose_;
+    }
+
+    if (!lhas_pose || !line_) {
       return;
     }
 
-    auto [steering, target_speed] = controller_->compute(x_, y_, yaw_, speed_, *line_);
+    auto [steering, target_speed] = controller_->compute(lx, ly, lyaw, lspeed, *line_);
     target_speed *= speed_ratio_;
 
     // Evaluate collision risk with ego vehicle
-    const CollisionRisk risk = evaluateCollisionRisk();
+    const CollisionRisk risk = evaluateCollisionRisk(lx, ly, lyaw, lspeed,
+                                                      leg_x, leg_y, leg_speed, lhas_ego);
 
     // Apply collision avoidance
     double throttle = 0.0;
@@ -257,7 +276,7 @@ private:
       // Caution: gradual speed reduction
       target_speed *= risk.speed_modifier;
 
-      const double speed_error = target_speed - speed_;
+      const double speed_error = target_speed - lspeed;
       if (speed_error > 0.0) {
         throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
       } else {
@@ -270,7 +289,7 @@ private:
 
     } else {
       // Normal driving
-      const double speed_error = target_speed - speed_;
+      const double speed_error = target_speed - lspeed;
       if (speed_error > 0.0) {
         throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
       } else {
@@ -307,6 +326,7 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   // NPC state
+  std::mutex state_mutex_;
   double speed_ratio_ = 1.0;
   double x_ = 0.0;
   double y_ = 0.0;

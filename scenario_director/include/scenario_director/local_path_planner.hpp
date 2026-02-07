@@ -25,6 +25,7 @@ struct PlannerWeights {
   double w_speed = 1.5;
   double w_overtake = 60.0;
   double w_collision = 20000.0;
+  double w_offroad = 20000.0;
   double w_smooth = 8.0;
   double w_curv = 2.0;
   double w_far_from_ref = 2.0;
@@ -84,7 +85,6 @@ struct LocalPlannerConfig {
   double horizon_s = 4.0;
   double path_ahead_m = 70.0;
 
-  std::vector<double> lateral_offsets = {-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0};
   std::vector<double> speed_scales = {0.85, 1.0, 1.10, 1.20};
 
   int offroad_check_stride = 2;
@@ -246,7 +246,7 @@ public:
 
   // overtake_phase: 0=NONE, 1=APPROACH, 2=POSITION, 3=EXECUTE, 4=COMPLETE
   PlanResult plan(double ego_x, double ego_y, double ego_yaw, double ego_v,
-                  double opp_x, double opp_y, double opp_v,
+                  double opp_x, double opp_y, double opp_yaw, double opp_v,
                   bool overtake_flag, int overtake_phase = 0);
 
   std::shared_ptr<ReferenceLine> getReferenceLine() const { return ref_; }

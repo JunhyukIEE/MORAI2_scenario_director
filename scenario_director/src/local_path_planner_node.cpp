@@ -24,6 +24,7 @@ constexpr int NUM_NPCS = 9;
 struct NPCState {
   double x = 0.0;
   double y = 0.0;
+  double yaw = 0.0;
   double v = 0.0;
   bool received = false;
 };
@@ -49,6 +50,7 @@ public:
     declare_parameter<double>("weights.w_speed", 1.5);
     declare_parameter<double>("weights.w_overtake", 60.0);
     declare_parameter<double>("weights.w_collision", 20000.0);
+    declare_parameter<double>("weights.w_offroad", 20000.0);
     declare_parameter<double>("weights.w_smooth", 8.0);
     declare_parameter<double>("weights.w_curv", 2.0);
     declare_parameter<double>("weights.w_far_from_ref", 2.0);
@@ -70,9 +72,7 @@ public:
     declare_parameter<double>("path_ahead_m", 70.0);
     declare_parameter<double>("planning_rate_hz", 10.0);
 
-    // Lateral offsets
-    declare_parameter<std::vector<double>>("lateral_offsets",
-        std::vector<double>{-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0});
+    // Speed scales
     declare_parameter<std::vector<double>>("speed_scales",
         std::vector<double>{0.85, 1.0, 1.10, 1.20});
 
@@ -137,6 +137,7 @@ public:
     config.weights.w_speed = get_parameter("weights.w_speed").as_double();
     config.weights.w_overtake = get_parameter("weights.w_overtake").as_double();
     config.weights.w_collision = get_parameter("weights.w_collision").as_double();
+    config.weights.w_offroad = get_parameter("weights.w_offroad").as_double();
     config.weights.w_smooth = get_parameter("weights.w_smooth").as_double();
     config.weights.w_curv = get_parameter("weights.w_curv").as_double();
     config.weights.w_far_from_ref = get_parameter("weights.w_far_from_ref").as_double();
@@ -153,7 +154,6 @@ public:
     config.horizon_s = get_parameter("horizon_s").as_double();
     config.path_ahead_m = get_parameter("path_ahead_m").as_double();
 
-    config.lateral_offsets = get_parameter("lateral_offsets").as_double_array();
     config.speed_scales = get_parameter("speed_scales").as_double_array();
 
     config.offroad_check_stride = get_parameter("offroad_check_stride").as_int();
@@ -282,6 +282,9 @@ private:
     std::lock_guard<std::mutex> lock(data_mutex_);
     npc_states_[npc_index].x = msg->pose.pose.position.x;
     npc_states_[npc_index].y = msg->pose.pose.position.y;
+    const auto& q = msg->pose.pose.orientation;
+    npc_states_[npc_index].yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                             1.0 - 2.0 * (q.y * q.y + q.z * q.z));
     npc_states_[npc_index].v = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
     npc_states_[npc_index].received = true;
   }
@@ -303,7 +306,7 @@ private:
 
   void planningCallback() {
     double ego_x, ego_y, ego_yaw, ego_v;
-    double opp_x, opp_y, opp_v;
+    double opp_x, opp_y, opp_yaw, opp_v;
     bool overtake_flag;
     int overtake_phase;
     bool can_plan = false;
@@ -345,6 +348,7 @@ private:
       if (npc_to_use >= 0 && npc_to_use < NUM_NPCS && npc_states_[npc_to_use].received) {
         opp_x = npc_states_[npc_to_use].x;
         opp_y = npc_states_[npc_to_use].y;
+        opp_yaw = npc_states_[npc_to_use].yaw;
         opp_v = npc_states_[npc_to_use].v;
         used_npc_id = npc_to_use;
         can_plan = true;
@@ -352,6 +356,7 @@ private:
         // No NPC available, use dummy position far away
         opp_x = ego_x_ + 1000.0;
         opp_y = ego_y_;
+        opp_yaw = ego_yaw_;
         opp_v = 0.0;
         can_plan = true;
       }
@@ -362,7 +367,7 @@ private:
     }
 
     // Run planner
-    auto result = planner_->plan(ego_x, ego_y, ego_yaw, ego_v, opp_x, opp_y, opp_v, overtake_flag, overtake_phase);
+    auto result = planner_->plan(ego_x, ego_y, ego_yaw, ego_v, opp_x, opp_y, opp_yaw, opp_v, overtake_flag, overtake_phase);
 
     // Publish candidate path as the planned path (no curling at end)
     nav_msgs::msg::Path path_msg;
