@@ -41,8 +41,10 @@ public:
     setupSocket();
     setupSubscriptions();
 
-    RCLCPP_INFO(get_logger(), "UDP Sender started (ego: %s:%d, NPCs: 9191-9991)",
-                send_ip_.c_str(), ego_send_port_);
+    RCLCPP_INFO(get_logger(), "UDP Sender started (ego: %s:%d)", send_ip_.c_str(), ego_send_port_);
+    for (int i = 0; i < NUM_NPCS; ++i) {
+      RCLCPP_INFO(get_logger(), "  NPC_%d send port: %d", i + 1, npc_send_ports_[i]);
+    }
   }
 
   ~UDPSenderNode() override {
@@ -122,8 +124,13 @@ private:
     std::memcpy(payload + 8, &brake, sizeof(double));
     std::memcpy(payload + 16, &steering_deg, sizeof(double));
 
-    sendto(socket_fd_, payload, sizeof(payload), 0,
+    ssize_t sent = sendto(socket_fd_, payload, sizeof(payload), 0,
            reinterpret_cast<sockaddr*>(&npc_send_addrs_[npc_index]), sizeof(npc_send_addrs_[npc_index]));
+
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+                          "NPC_%d cmd sent to port %d: throttle=%.2f, brake=%.2f, steer=%.2f, bytes=%zd",
+                          npc_index + 1, npc_send_ports_[npc_index],
+                          throttle, brake, steering_deg, sent);
   }
 
   std::string send_ip_;

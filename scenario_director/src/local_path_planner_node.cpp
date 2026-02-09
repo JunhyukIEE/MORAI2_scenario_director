@@ -526,15 +526,6 @@ private:
     lat_msg.data = result.lat_offset;
     lat_offset_pub_->publish(lat_msg);
 
-    // Log debug info periodically
-    static int log_counter = 0;
-    if (++log_counter >= 50) {  // Every 5 seconds at 10 Hz
-      log_counter = 0;
-      RCLCPP_INFO(get_logger(),
-          "Plan: R=%.1f, lat=%.2f, sc=%.2f | Ego: (%.1f, %.1f) v=%.1f | Opp: (%.1f, %.1f) v=%.1f",
-          result.reward, result.lat_offset, result.speed_scale,
-          ego_x, ego_y, ego_v, opp_x, opp_y, opp_v);
-    }
   }
 
   std::shared_ptr<LocalPathPlanner> planner_;

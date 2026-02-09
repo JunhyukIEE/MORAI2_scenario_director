@@ -6,7 +6,7 @@
     npc.id: 1
 
     # NPC별 속도
-    npc.speed_ratio.npc_1: 0.45
+    npc.speed_ratio.npc_1: 1.00 #0.45
     npc.speed_ratio.npc_2: 0.88
     npc.speed_ratio.npc_3: 0.91
     npc.speed_ratio.npc_4: 0.94

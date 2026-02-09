@@ -250,10 +250,22 @@ private:
     Waypoint target = line_->getLookaheadPoint(x_, y_, lookahead);
     double target_speed = target.speed;
 
-    // Use local path from local_path_planner when overtake is active
+    // 전방 NPC 근접 여부 확인 (충돌 회피용)
+    bool npc_close_ahead = false;
+    {
+      int npc_idx = findNearestNPCAhead();
+      if (npc_idx >= 0) {
+        const double dx = npc_states_[npc_idx].x - x_;
+        const double dy = npc_states_[npc_idx].y - y_;
+        const double forward = dx * std::cos(yaw_) + dy * std::sin(yaw_);
+        npc_close_ahead = forward > 0.0 && forward < overtake_trigger_distance_;
+      }
+    }
+
+    // 추월 활성 OR 전방 NPC 근접 시 local path 사용 (충돌 회피)
     const bool local_path_fresh = has_local_path_ &&
         (now() - last_local_path_time_).seconds() < 0.5;
-    if (overtake_active && local_path_fresh) {
+    if ((overtake_active || npc_close_ahead) && local_path_fresh) {
       std::lock_guard<std::mutex> lock(local_path_mutex_);
       if (local_path_.size() >= 2) {
         size_t target_idx = getLookaheadIndexOnPath(x_, y_, lookahead, local_path_);
@@ -275,10 +287,25 @@ private:
     double throttle = 0.0;
     double brake = 0.0;
 
-    if (speed_error > 0.0) {
+    // Dead zone: 작은 속도 차이에서 throttle/brake 진동 방지
+    constexpr double dead_zone = 0.5;  // m/s
+    if (speed_error > dead_zone) {
       throttle = std::min(max_throttle_, throttle_kp_ * speed_error);
-    } else {
+    } else if (speed_error < -dead_zone) {
       brake = std::min(max_brake_, brake_kp_ * std::abs(speed_error));
+    } else {
+      // dead zone 내: 현재 속도 유지 (coast)
+      // target보다 약간 느리면 미세 throttle로 속도 유지
+      if (speed_error > 0.0) {
+        throttle = 0.05;
+      }
+    }
+
+    // 추월 실행~완료: full throttle 강제
+    if (overtake_phase_ == OvertakePhase::EXECUTE ||
+        overtake_phase_ == OvertakePhase::COMPLETE) {
+      throttle = max_throttle_;
+      brake = 0.0;
     }
 
     steering = std::max(-max_steering_, std::min(max_steering_, steering));

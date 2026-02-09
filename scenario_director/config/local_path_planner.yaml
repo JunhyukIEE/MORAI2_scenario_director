@@ -9,7 +9,7 @@ local_path_planner:
     vehicle.wheelbase: 2.35
     vehicle.max_steer: 0.436
     vehicle.max_steer_rate: 2.0     # rad/s — 조향 변화율 제한 (급조향 방지)
-    vehicle.max_accel: 3.5          # m/s^2
+    vehicle.max_accel: 5.0          # m/s^2
     vehicle.max_decel: 7.0          # m/s^2
     vehicle.max_lat_accel: 8.5      # m/s^2 (professional driver level)
 
@@ -49,14 +49,14 @@ local_path_planner:
     # 추월 전략 설정
     # Late Braking (브레이킹 포인트 기반)
     strategy.overtake.late_braking.enabled: true
-    strategy.overtake.late_braking.delay_factor: 0.3           # 브레이킹 지연 비율 (0.0~1.0, 높을수록 늦게)
-    strategy.overtake.late_braking.outside_offset: 3.0         # 브레이킹 전 바깥쪽 오프셋 (m)
-    strategy.overtake.late_braking.inside_offset: 0.5          # apex에서 안쪽 오프셋 (m)
+    strategy.overtake.late_braking.delay_factor: 1.0           # 브레이킹 지연 비율 (0.0~1.0, 높을수록 늦게)
+    strategy.overtake.late_braking.outside_offset: 2.0         # 브레이킹 전 바깥쪽 오프셋 (m)
+    strategy.overtake.late_braking.inside_offset: 1.0          # apex에서 안쪽 오프셋 (m)
     strategy.overtake.late_braking.transition_sharpness: 0.9   # 전환 날카로움 (높을수록 급격히 꺾음)
     strategy.overtake.late_braking.min_corner_curvature: 0.05  # late braking 적용 최소 곡률
     strategy.overtake.late_braking.safety_margin: 1.15         # 브레이킹 거리 안전 마진
-    strategy.overtake.late_braking.max_decel_override: 1.0     # 0이면 vehicle.max_decel 사용
-    strategy.overtake.late_braking.exit_recovery_distance: 30.0 # apex 후 레이싱라인 복귀 거리 (m)
+    strategy.overtake.late_braking.max_decel_override: 0.0     # 0이면 vehicle.max_decel 사용
+    strategy.overtake.late_braking.exit_recovery_distance: 500.0 # apex 후 레이싱라인 복귀 거리 (m)
 
     # 공통 설정
     strategy.overtake.min_corner_curvature: 0.025
