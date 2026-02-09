@@ -12,7 +12,10 @@ def generate_launch_description():
         f"{share}/config/scenario_director.yaml",
         f"{share}/config/pure_pursuit.yaml"
     ]
-    local_planner_params = [f"{share}/config/local_path_planner.yaml"]
+    local_planner_params = [
+        f"{share}/config/scenario_director.yaml",
+        f"{share}/config/local_path_planner.yaml"
+    ]
 
     return LaunchDescription([
         # Visualizer (updated for new topic format)

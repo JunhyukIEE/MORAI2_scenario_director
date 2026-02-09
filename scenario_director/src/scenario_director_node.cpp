@@ -80,6 +80,7 @@ public:
     declare_parameter<double>("overtake.execute_distance", 5.0);
     declare_parameter<double>("overtake.complete_distance", 8.0);
     declare_parameter<double>("overtake.speed_advantage_threshold", 2.0);
+    declare_parameter<double>("overtake.late_braking_trigger_distance", 70.0);
     declare_parameter<std::string>("local_path.topic", "/local_planner/path");
     declare_parameter<std::string>("local_speed.topic", "/local_planner/path_speeds");
 
@@ -119,6 +120,7 @@ public:
     overtake_execute_distance_ = get_parameter("overtake.execute_distance").as_double();
     overtake_complete_distance_ = get_parameter("overtake.complete_distance").as_double();
     speed_advantage_threshold_ = get_parameter("overtake.speed_advantage_threshold").as_double();
+    late_braking_trigger_distance_ = get_parameter("overtake.late_braking_trigger_distance").as_double();
     pp_config_ = cfg;
 
     // Ego vehicle subscriptions
@@ -343,21 +345,42 @@ private:
     const double speed_diff = speed_ - npc.speed;
     const bool has_speed_advantage = speed_diff > speed_advantage_threshold_;
 
+    // 전방 커브 감지: racing line waypoint의 yaw 변화율로 곡률 추정
+    bool curve_ahead = false;
+    if (line_ && is_ahead) {
+      int ego_idx = line_->getNearestIndex(x_, y_);
+      int n = static_cast<int>(line_->size());
+      for (int i = 1; i < 80 && (ego_idx + i + 1) < n; ++i) {
+        Waypoint wp0 = line_->getWaypoint(ego_idx + i);
+        Waypoint wp1 = line_->getWaypoint(ego_idx + i + 1);
+        double dyaw = std::atan2(std::sin(wp1.yaw - wp0.yaw), std::cos(wp1.yaw - wp0.yaw));
+        double ds = std::sqrt(std::pow(wp1.x - wp0.x, 2) + std::pow(wp1.y - wp0.y, 2));
+        if (ds > 0.1 && std::abs(dyaw / ds) > 0.025) {
+          curve_ahead = true;
+          break;
+        }
+      }
+    }
+
+    // 커브가 전방에 있으면 late braking용 확장 trigger 사용
+    const double effective_trigger = curve_ahead ?
+        late_braking_trigger_distance_ : overtake_trigger_distance_;
+
     // State machine
     switch (overtake_phase_) {
       case OvertakePhase::NONE:
-        if (is_ahead && dist <= overtake_trigger_distance_ && has_speed_advantage) {
+        if (is_ahead && dist <= effective_trigger && has_speed_advantage) {
           overtake_phase_ = OvertakePhase::APPROACH;
           overtake_state_ = OvertakeState::ACTIVE;
           overtake_start_time_ = now();
           target_npc_id_ = eval_npc;
-          RCLCPP_INFO(get_logger(), "Overtake APPROACH NPC_%d: dist=%.1f m, speed_diff=%.1f m/s",
-                      eval_npc + 1, dist, speed_diff);
+          RCLCPP_INFO(get_logger(), "Overtake APPROACH NPC_%d: dist=%.1f m, speed_diff=%.1f m/s%s",
+                      eval_npc + 1, dist, speed_diff, curve_ahead ? " [CURVE]" : "");
         }
         break;
 
       case OvertakePhase::APPROACH:
-        if (!is_ahead || dist > overtake_trigger_distance_ * 1.2) {
+        if (!is_ahead || dist > effective_trigger * 1.2) {
           overtake_phase_ = OvertakePhase::NONE;
           overtake_state_ = OvertakeState::NONE;
           chosen_side_ = 0;
@@ -377,7 +400,7 @@ private:
         if (!is_ahead && !is_beside) {
           overtake_phase_ = OvertakePhase::EXECUTE;
           RCLCPP_INFO(get_logger(), "Overtake EXECUTE (fast pass) NPC_%d", target_npc_id_ + 1);
-        } else if (dist > overtake_trigger_distance_ * 1.2) {
+        } else if (dist > effective_trigger * 1.2) {
           overtake_phase_ = OvertakePhase::NONE;
           overtake_state_ = OvertakeState::NONE;
           chosen_side_ = 0;
@@ -487,6 +510,7 @@ private:
   double overtake_execute_distance_ = 5.0;
   double overtake_complete_distance_ = 8.0;
   double speed_advantage_threshold_ = 2.0;
+  double late_braking_trigger_distance_ = 70.0;
   PurePursuitConfig pp_config_;
 
   // Ego state

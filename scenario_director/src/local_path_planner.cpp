@@ -578,9 +578,11 @@ std::vector<TrajectoryPoint> LocalPathPlanner::rolloutFollowPath(
 
   const double wb = config_.vehicle.wheelbase;
   const double max_steer = config_.vehicle.max_steer;
+  const double max_steer_rate = config_.vehicle.max_steer_rate;
   const double max_accel = config_.vehicle.max_accel;
   const double max_decel = config_.vehicle.max_decel;
   const double dt = config_.dt;
+  double prev_steer = 0.0;  // 이전 타임스텝 조향각 (rate limit 용)
 
   size_t M = path_x.size();
 
@@ -639,7 +641,7 @@ std::vector<TrajectoryPoint> LocalPathPlanner::rolloutFollowPath(
 
     size_t idx = findNearest(x, y);
 
-    double Ld = std::clamp(3.0 + 0.35 * v, 3.0, 12.0);
+    double Ld = std::clamp(5.0 + 0.5 * v, 5.0, 15.0);
     auto [target_x, target_y] = lookaheadTarget(idx, Ld);
 
     // Pure pursuit steering
@@ -648,6 +650,11 @@ std::vector<TrajectoryPoint> LocalPathPlanner::rolloutFollowPath(
     double alpha = wrapPi(std::atan2(dy, dx) - yaw);
     double steer = std::atan2(2.0 * wb * std::sin(alpha), Ld);
     steer = std::clamp(steer, -max_steer, max_steer);
+
+    // Steering rate limit — 한 타임스텝당 최대 변화량 제한
+    double max_delta = max_steer_rate * dt;
+    steer = std::clamp(steer, prev_steer - max_delta, prev_steer + max_delta);
+    prev_steer = steer;
 
     // Longitudinal control
     double vd = v_des[std::min(idx, M - 1)];
@@ -1107,6 +1114,26 @@ PlanResult LocalPathPlanner::plan(
                                     config_.horizon_s, config_.dt,
                                     opp_future_x, opp_future_y, opp_future_yaw, opp_future_v);
 
+  // 타차 예측 궤적 상의 최대 곡률 → 동적 회피 vs late braking 전략 결정
+  // horizon 내에서 타차가 커브에 진입할지 판단
+  double opp_max_kappa = 0.0;
+  if (!opp_future_x.empty()) {
+    const int sample_step = std::max(1, static_cast<int>(opp_future_x.size()) / 10);
+    for (size_t t = 0; t < opp_future_x.size(); t += sample_step) {
+      int opp_ref_i = ref_->nearestIndex(opp_future_x[t], opp_future_y[t]);
+      double abs_k = std::abs(ref_->kappa()[opp_ref_i]);
+      if (abs_k > opp_max_kappa) {
+        opp_max_kappa = abs_k;
+      }
+    }
+  }
+  const double curve_threshold = config_.strategy.overtake.min_corner_curvature;
+  const bool opp_entering_curve = opp_max_kappa > curve_threshold;
+  // 동적 회피: 항상 허용 (커브/직선 무관하게 회피 경로 생성)
+  // late braking: 타차가 커브에 진입할 때 추가 생성
+  const bool use_dynamic_avoidance = true;
+  const bool use_late_braking = opp_entering_curve;
+
   PlanResult best;
   best.reward = -std::numeric_limits<double>::max();
 
@@ -1172,9 +1199,9 @@ PlanResult LocalPathPlanner::plan(
   }
 
   // ============================================
-  // 동적 회피 경로 후보 생성 (상대 차량 위치 기반)
+  // 동적 회피 경로 후보 생성 (상대 차량 위치 기반) — 직선 구간 전용
   // ============================================
-  if (opp_ahead && forward_to_opp < config_.gap_check_distance) {
+  if (use_dynamic_avoidance && opp_ahead && forward_to_opp < config_.gap_check_distance) {
     // 상대 차량의 reference line 상 인덱스 찾기
     int opp_ref_idx = ref_->nearestIndex(opp_x, opp_y);
 
@@ -1350,9 +1377,9 @@ PlanResult LocalPathPlanner::plan(
   }
 
   // ============================================
-  // Late Braking 후보 평가 (브레이킹 포인트 기반)
+  // Late Braking 후보 평가 (브레이킹 포인트 기반) — 커브 구간 전용
   // ============================================
-  if (overtake_active && has_overtake_apex) {
+  if (use_late_braking && overtake_active && has_overtake_apex) {
     // Late braking 후보 생성
     auto lb_candidates = generateLateBrakingCandidates(
         idxs, base_v, base_kappa, ds_from_start,
@@ -1406,9 +1433,15 @@ PlanResult LocalPathPlanner::plan(
         R -= config_.overtake_side_commit_penalty * 0.3;  // late braking은 페널티 감소
       }
 
-      // Phase 보너스
+      // Phase 보너스 (모든 단계에서 적용)
+      if (phase_approach) {
+        R += config_.strategy.overtake.gap_reward_scale * 0.5;  // 접근: late braking 준비
+      }
+      if (phase_position) {
+        R += config_.strategy.overtake.gap_reward_scale * 1.5;  // 위치선점: 적극 선택
+      }
       if (phase_execute) {
-        R += config_.strategy.overtake.gap_reward_scale * 2.5;  // 실행 단계에서 late braking 적극 권장
+        R += config_.strategy.overtake.gap_reward_scale * 2.5;  // 실행: 최대 보상
       }
 
       // Late Braking 경로 갭 체크

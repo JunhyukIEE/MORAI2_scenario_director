@@ -41,6 +41,7 @@ public:
     // Vehicle parameters
     declare_parameter<double>("vehicle.wheelbase", 2.35);
     declare_parameter<double>("vehicle.max_steer", 0.436);
+    declare_parameter<double>("vehicle.max_steer_rate", 1.5);
     declare_parameter<double>("vehicle.max_accel", 3.5);
     declare_parameter<double>("vehicle.max_decel", 7.0);
     declare_parameter<double>("vehicle.max_lat_accel", 8.5);
@@ -129,6 +130,7 @@ public:
 
     config.vehicle.wheelbase = get_parameter("vehicle.wheelbase").as_double();
     config.vehicle.max_steer = get_parameter("vehicle.max_steer").as_double();
+    config.vehicle.max_steer_rate = get_parameter("vehicle.max_steer_rate").as_double();
     config.vehicle.max_accel = get_parameter("vehicle.max_accel").as_double();
     config.vehicle.max_decel = get_parameter("vehicle.max_decel").as_double();
     config.vehicle.max_lat_accel = get_parameter("vehicle.max_lat_accel").as_double();

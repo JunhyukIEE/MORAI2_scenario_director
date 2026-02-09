@@ -15,6 +15,7 @@ namespace scenario_director {
 struct VehicleParams {
   double wheelbase = 2.35;
   double max_steer = 0.489;
+  double max_steer_rate = 1.5;  // rad/s — 조향 변화율 제한
   double max_accel = 3.5;
   double max_decel = 7.0;
   double max_lat_accel = 8.5;
