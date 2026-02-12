@@ -1,0 +1,16 @@
+camera_health_checker:
+  ros__parameters:
+    topic_names:
+      - /sensing/camera/front/image_raw
+      - /sensing/camera/left_front/image_raw
+      - /sensing/camera/left_rear/image_raw
+      - /sensing/camera/right_front/image_raw
+      - /sensing/camera/right_rear/image_raw
+    diagnostics_topic: /diagnostics_camera
+    sync_tolerance_ms: 30.0
+    min_fps: 15.0
+    rate_window_size: 30
+    use_approx_sync: true
+    stale_timeout_sec: 1.0
+    status_period_sec: 1.0
+
