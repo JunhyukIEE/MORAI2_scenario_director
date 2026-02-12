@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <morai_msgs/msg/float64_stamped.hpp>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -93,17 +94,17 @@ public:
 
     // Ego publishers
     ego_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/ego/odom", 10);
-    ego_velocity_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/velocity", 10);
+    ego_velocity_pub_ = create_publisher<morai_msgs::msg::Float64Stamped>("/Ego/vehicle/status/velocity_status", 10);
     ego_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/acceleration", 10);
-    ego_steering_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/steering_state", 10);
+    ego_steering_pub_ = create_publisher<morai_msgs::msg::Float64Stamped>("/Ego/vehicle/status/steering_status", 10);
 
     // NPC publishers
     for (int i = 1; i <= NUM_NPCS; ++i) {
       std::string prefix = "/NPC_" + std::to_string(i);
       npc_odom_pubs_[i-1] = create_publisher<nav_msgs::msg::Odometry>(prefix + "/odom", 10);
-      npc_velocity_pubs_[i-1] = create_publisher<std_msgs::msg::Float64>(prefix + "/vehicle/velocity", 10);
+      npc_velocity_pubs_[i-1] = create_publisher<morai_msgs::msg::Float64Stamped>(prefix + "/vehicle/velocity", 10);
       npc_accel_pubs_[i-1] = create_publisher<std_msgs::msg::Float64>(prefix + "/vehicle/acceleration", 10);
-      npc_steering_pubs_[i-1] = create_publisher<std_msgs::msg::Float64>(prefix + "/vehicle/steering_state", 10);
+      npc_steering_pubs_[i-1] = create_publisher<morai_msgs::msg::Float64Stamped>(prefix + "/vehicle/steering_state", 10);
     }
 
     setup_sockets();
@@ -296,8 +297,9 @@ private:
                        double roll, double pitch, double yaw,
                        double vx, double vy, double ax, double ay, double steering,
                        int npc_index) {
+    const auto stamp = now();
     auto odom = nav_msgs::msg::Odometry();
-    odom.header.stamp = now();
+    odom.header.stamp = stamp;
     odom.header.frame_id = "world";
 
     if (npc_index < 0) {
@@ -319,14 +321,25 @@ private:
     odom.twist.twist.linear.x = vx;
     odom.twist.twist.linear.y = vy;
 
-    std_msgs::msg::Float64 vel_msg;
+    morai_msgs::msg::Float64Stamped vel_msg;
+    vel_msg.header.stamp = stamp;
     vel_msg.data = std::sqrt(vx * vx + vy * vy);
 
     std_msgs::msg::Float64 accel_msg;
     accel_msg.data = std::sqrt(ax * ax + ay * ay);
 
-    std_msgs::msg::Float64 steer_msg;
+    morai_msgs::msg::Float64Stamped steer_msg;
+    steer_msg.header.stamp = stamp;
     steer_msg.data = steering;
+
+    if (npc_index < 0) {
+      vel_msg.header.frame_id = "ego";
+      steer_msg.header.frame_id = "ego";
+    } else {
+      const std::string frame_id = "npc_" + std::to_string(npc_index + 1);
+      vel_msg.header.frame_id = frame_id;
+      steer_msg.header.frame_id = frame_id;
+    }
 
     if (npc_index < 0) {
       // Ego
@@ -357,15 +370,15 @@ private:
 
   // Ego publishers
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ego_odom_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_velocity_pub_;
+  rclcpp::Publisher<morai_msgs::msg::Float64Stamped>::SharedPtr ego_velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_accel_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ego_steering_pub_;
+  rclcpp::Publisher<morai_msgs::msg::Float64Stamped>::SharedPtr ego_steering_pub_;
 
   // NPC publishers
   std::array<rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr, NUM_NPCS> npc_odom_pubs_;
-  std::array<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_velocity_pubs_;
+  std::array<rclcpp::Publisher<morai_msgs::msg::Float64Stamped>::SharedPtr, NUM_NPCS> npc_velocity_pubs_;
   std::array<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_accel_pubs_;
-  std::array<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_steering_pubs_;
+  std::array<rclcpp::Publisher<morai_msgs::msg::Float64Stamped>::SharedPtr, NUM_NPCS> npc_steering_pubs_;
 };
 
 int main(int argc, char **argv) {

@@ -19,6 +19,7 @@
   <depend>visualization_msgs</depend>
   <depend>yaml-cpp</depend>
   <depend>opencv2</depend>
+  <depend>morai_msgs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
 

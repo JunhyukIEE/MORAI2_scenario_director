@@ -17,6 +17,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(scenario_director REQUIRED)
+find_package(morai_msgs REQUIRED)
 
 include_directories(include)
 
@@ -25,6 +26,7 @@ ament_target_dependencies(udp_receiver_node
   rclcpp
   std_msgs
   nav_msgs
+  morai_msgs
 )
 
 add_executable(udp_sender_node src/udp_sender_node.cpp)

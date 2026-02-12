@@ -5,6 +5,7 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int32.hpp>
+#include <morai_msgs/msg/float64_stamped.hpp>
 #include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -126,8 +127,8 @@ public:
     // Ego vehicle subscriptions
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/ego/odom", 10, std::bind(&ScenarioDirectorNode::odomCallback, this, std::placeholders::_1));
-    vel_sub_ = create_subscription<std_msgs::msg::Float64>(
-      "/ego/vehicle/velocity", 10, std::bind(&ScenarioDirectorNode::velocityCallback, this, std::placeholders::_1));
+    vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
+      "/Ego/vehicle/status/velocity_status", 10, std::bind(&ScenarioDirectorNode::velocityCallback, this, std::placeholders::_1));
 
     // NPC subscriptions (9 NPCs)
     for (int i = 0; i < NUM_NPCS; ++i) {
@@ -137,9 +138,9 @@ public:
         [this, i](const nav_msgs::msg::Odometry::SharedPtr msg) {
           npcOdomCallback(msg, i);
         });
-      npc_vel_subs_[i] = create_subscription<std_msgs::msg::Float64>(
+      npc_vel_subs_[i] = create_subscription<morai_msgs::msg::Float64Stamped>(
         prefix + "/vehicle/velocity", 10,
-        [this, i](const std_msgs::msg::Float64::SharedPtr msg) {
+        [this, i](const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
           npcVelocityCallback(msg, i);
         });
     }
@@ -175,7 +176,7 @@ private:
     has_pose_ = true;
   }
 
-  void velocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+  void velocityCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
     speed_ = msg->data;
   }
 
@@ -185,7 +186,7 @@ private:
     npc_states_[npc_index].has_pose = true;
   }
 
-  void npcVelocityCallback(const std_msgs::msg::Float64::SharedPtr msg, int npc_index) {
+  void npcVelocityCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg, int npc_index) {
     npc_states_[npc_index].speed = msg->data;
   }
 
@@ -509,11 +510,11 @@ private:
 
   // Ego subscriptions
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr vel_sub_;
+  rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr vel_sub_;
 
   // NPC subscriptions
   std::array<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr, NUM_NPCS> npc_odom_subs_;
-  std::array<rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr, NUM_NPCS> npc_vel_subs_;
+  std::array<rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr, NUM_NPCS> npc_vel_subs_;
 
   // Local path subscriptions
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr local_path_sub_;

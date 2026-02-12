@@ -16,6 +16,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(morai_msgs REQUIRED)
 
 add_library(dataset_logger src/data_logger.cpp)
 
@@ -34,6 +35,7 @@ ament_target_dependencies(dataset_logger_node
   geometry_msgs
   sensor_msgs
   cv_bridge
+  morai_msgs
 )
 
 target_link_libraries(dataset_logger_node dataset_logger ${OpenCV_LIBS})

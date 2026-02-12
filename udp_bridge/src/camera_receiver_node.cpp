@@ -73,11 +73,11 @@ private:
 
     // Define camera configurations
     std::vector<std::tuple<std::string, std::string, std::string>> camera_defs = {
-      {"front", "camera.front", "/sensor/camera/front"},
-      {"left_front", "camera.left_front", "/sensor/camera/left_front"},
-      {"left_rear", "camera.left_rear", "/sensor/camera/left_rear"},
-      {"right_front", "camera.right_front", "/sensor/camera/right_front"},
-      {"right_rear", "camera.right_rear", "/sensor/camera/right_rear"}
+      {"front", "camera.front", "/sensing/camera/front/image_raw"},
+      {"left_front", "camera.left_front", "/sensing/camera/left_front/image_raw"},
+      {"left_rear", "camera.left_rear", "/sensing/camera/left_rear/image_raw"},
+      {"right_front", "camera.right_front", "/sensing/camera/right_front/image_raw"},
+      {"right_rear", "camera.right_rear", "/sensing/camera/right_rear/image_raw"}
     };
 
     for (const auto &[name, param_prefix, topic] : camera_defs) {

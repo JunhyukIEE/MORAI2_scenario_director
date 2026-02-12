@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <morai_msgs/msg/float64_stamped.hpp>
 #include "scenario_director/msg/vehicle_cmd.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -117,14 +118,14 @@ public:
     std::string npc_prefix = "/" + npc_name_;
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       npc_prefix + "/odom", 10, std::bind(&NPCControllerNode::odomCallback, this, std::placeholders::_1));
-    vel_sub_ = create_subscription<std_msgs::msg::Float64>(
+    vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
       npc_prefix + "/vehicle/velocity", 10, std::bind(&NPCControllerNode::velocityCallback, this, std::placeholders::_1));
 
     // Ego vehicle subscription for collision avoidance
     ego_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/ego/odom", 10, std::bind(&NPCControllerNode::egoOdomCallback, this, std::placeholders::_1));
-    ego_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
-      "/ego/vehicle/velocity", 10, std::bind(&NPCControllerNode::egoVelocityCallback, this, std::placeholders::_1));
+    ego_vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
+      "/Ego/vehicle/status/velocity_status", 10, std::bind(&NPCControllerNode::egoVelocityCallback, this, std::placeholders::_1));
 
     cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>(npc_prefix + "/ctrl_cmd", 10);
 
@@ -146,7 +147,7 @@ private:
     yaw_ = quaternionToYaw(msg->pose.pose.orientation);
   }
 
-  void velocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+  void velocityCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     speed_ = msg->data;
   }
@@ -159,7 +160,7 @@ private:
     has_ego_pose_ = true;
   }
 
-  void egoVelocityCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+  void egoVelocityCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     ego_speed_ = msg->data;
   }
@@ -316,11 +317,11 @@ private:
 
   // NPC subscriptions
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr vel_sub_;
+  rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr vel_sub_;
 
   // Ego subscriptions for collision avoidance
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ego_vel_sub_;
+  rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr ego_vel_sub_;
 
   rclcpp::Publisher<scenario_director::msg::VehicleCmd>::SharedPtr cmd_pub_;
   rclcpp::TimerBase::SharedPtr timer_;

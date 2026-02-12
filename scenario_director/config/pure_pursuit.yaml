@@ -1,6 +1,6 @@
 scenario_director:
   ros__parameters:
-    pure_pursuit.lookahead_distance: 15.0
+    pure_pursuit.lookahead_distance: 10.0
     pure_pursuit.min_lookahead: 4.0
-    pure_pursuit.max_lookahead: 55.0
-    pure_pursuit.lookahead_ratio: 0.3
+    pure_pursuit.max_lookahead: 50.0
+    pure_pursuit.lookahead_ratio: 0.2

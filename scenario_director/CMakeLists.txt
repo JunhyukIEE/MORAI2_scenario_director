@@ -20,6 +20,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(morai_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/VehicleCmd.msg"
@@ -51,6 +52,7 @@ ament_target_dependencies(scenario_director_node
   nav_msgs
   geometry_msgs
   ament_index_cpp
+  morai_msgs
 )
 
 target_link_libraries(scenario_director_node scenario_core)
@@ -65,6 +67,7 @@ ament_target_dependencies(npc_controller_node
   nav_msgs
   geometry_msgs
   ament_index_cpp
+  morai_msgs
 )
 
 target_link_libraries(npc_controller_node scenario_core)

@@ -2,6 +2,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <morai_msgs/msg/float64_stamped.hpp>
 #include <cv_bridge/cv_bridge.h>
 
 #include "dataset_logger/data_logger.hpp"
@@ -47,14 +48,14 @@ public:
 
     ego_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/ego/odom", 10, std::bind(&DatasetLoggerNode::egoOdomCallback, this, std::placeholders::_1));
-    ego_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
+    ego_vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
       "/ego/vehicle/velocity", 10, std::bind(&DatasetLoggerNode::egoVelCallback, this, std::placeholders::_1));
-    ego_steer_sub_ = create_subscription<std_msgs::msg::Float64>(
+    ego_steer_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
       "/ego/vehicle/steering_state", 10, std::bind(&DatasetLoggerNode::egoSteerCallback, this, std::placeholders::_1));
 
     opp_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/opponent/odom", 10, std::bind(&DatasetLoggerNode::oppOdomCallback, this, std::placeholders::_1));
-    opp_vel_sub_ = create_subscription<std_msgs::msg::Float64>(
+    opp_vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
       "/opponent/vehicle/velocity", 10, std::bind(&DatasetLoggerNode::oppVelCallback, this, std::placeholders::_1));
 
     image_sub_ = create_subscription<sensor_msgs::msg::Image>(
@@ -174,12 +175,12 @@ private:
     has_ego_ = true;
   }
 
-  void egoVelCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+  void egoVelCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mutex_);
     ego_speed_ = msg->data;
   }
 
-  void egoSteerCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+  void egoSteerCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mutex_);
     ego_steering_ = msg->data;
   }
@@ -191,7 +192,7 @@ private:
     has_opp_ = true;
   }
 
-  void oppVelCallback(const std_msgs::msg::Float64::SharedPtr msg) {
+  void oppVelCallback(const morai_msgs::msg::Float64Stamped::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mutex_);
     opp_speed_ = msg->data;
   }
@@ -243,10 +244,10 @@ private:
   }
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ego_vel_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ego_steer_sub_;
+  rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr ego_vel_sub_;
+  rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr ego_steer_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr opp_odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr opp_vel_sub_;
+  rclcpp::Subscription<morai_msgs::msg::Float64Stamped>::SharedPtr opp_vel_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
 
   std::mutex mutex_;
