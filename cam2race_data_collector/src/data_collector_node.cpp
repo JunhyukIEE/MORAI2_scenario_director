@@ -49,14 +49,14 @@ public:
 
     // Subscribers with Message Filters
     // Topics:
-    // cam0: front, cam1: left_front, cam4: right_front, cam2: left_rear, cam3: right_rear
+    // cam0: front, cam1: front_left, cam4: front_right, cam2: rear_left, cam3: rear_right
     // Note: Variable names follow logical index, mapping handles the topic name.
 
     cam0_sub_.subscribe(this, "/sensing/camera/front/image_raw", qos_profile);
-    cam1_sub_.subscribe(this, "/sensing/camera/left_front/image_raw", qos_profile);
-    cam4_sub_.subscribe(this, "/sensing/camera/right_front/image_raw", qos_profile);
-    cam2_sub_.subscribe(this, "/sensing/camera/left_rear/image_raw", qos_profile);
-    cam3_sub_.subscribe(this, "/sensing/camera/right_rear/image_raw", qos_profile);
+    cam1_sub_.subscribe(this, "/sensing/camera/front_left/image_raw", qos_profile);
+    cam4_sub_.subscribe(this, "/sensing/camera/front_right/image_raw", qos_profile);
+    cam2_sub_.subscribe(this, "/sensing/camera/rear_left/image_raw", qos_profile);
+    cam3_sub_.subscribe(this, "/sensing/camera/rear_right/image_raw", qos_profile);
 
     velocity_sub_.subscribe(this, "/Ego/vehicle/status/velocity_status", qos_profile);
     steering_sub_.subscribe(this, "/Ego/vehicle/status/steering_status", qos_profile);
@@ -93,7 +93,7 @@ private:
     fs::create_directories(save_path_ + "/meta");
 
     // Create camera dirs
-    // cam0: front, cam1: FL, cam4: FR, cam2: RL, cam3: RR
+    // cam0: front, cam1: front_left, cam4: front_right, cam2: rear_left, cam3: rear_right
     fs::create_directories(save_path_ + "/cam0"); // Front
     fs::create_directories(save_path_ + "/cam1"); // Front Left
     fs::create_directories(save_path_ + "/cam4"); // Front Right
@@ -118,10 +118,10 @@ private:
 
   void callback(
     const ImageMsg::ConstSharedPtr& msg0, // Front
-    const ImageMsg::ConstSharedPtr& msg1, // Left Front
-    const ImageMsg::ConstSharedPtr& msg4, // Right Front
-    const ImageMsg::ConstSharedPtr& msg2, // Left Rear
-    const ImageMsg::ConstSharedPtr& msg3, // Right Rear
+    const ImageMsg::ConstSharedPtr& msg1, // Front Left
+    const ImageMsg::ConstSharedPtr& msg4, // Front Right
+    const ImageMsg::ConstSharedPtr& msg2, // Rear Left
+    const ImageMsg::ConstSharedPtr& msg3, // Rear Right
     const Float64StampedMsg::ConstSharedPtr& velocity_msg,
     const Float64StampedMsg::ConstSharedPtr& steering_msg)
   {

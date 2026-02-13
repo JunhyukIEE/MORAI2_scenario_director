@@ -38,13 +38,13 @@ local_path_planner:
     speed_scales: [0.80, 0.90, 1.0, 1.10]
 
     # Safety settings
-    offroad_check_stride: 2         # Check every N-th point for offroad
+    offroad_check_stride: 1         # Check every N-th point for offroad
     overtake_margin_s: 15.0         # Distance ahead to consider overtake complete
-    near_pass_bonus_dist: 0.0       # 근접 보너스
+    near_pass_bonus_dist: 5.0       # 근접 보너스
 
     # Hysteresis (방향 변경 페널티 - 갈팡질팡 방지)
     lat_change_penalty: 80.0        # 1m offset 변경 시 페널티 (높을수록 방향 유지)
-    overtake_side_commit_penalty: 100.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
+    overtake_side_commit_penalty: 50.0  # 추월 중 사이드 변경 페널티 (한쪽 선택 후 고수)
 
     # 추월 전략 설정
     # Late Braking (브레이킹 포인트 기반)
@@ -56,7 +56,7 @@ local_path_planner:
     strategy.overtake.late_braking.min_corner_curvature: 0.05  # late braking 적용 최소 곡률
     strategy.overtake.late_braking.safety_margin: 1.15         # 브레이킹 거리 안전 마진
     strategy.overtake.late_braking.max_decel_override: 0.0     # 0이면 vehicle.max_decel 사용
-    strategy.overtake.late_braking.exit_recovery_distance: 500.0 # apex 후 레이싱라인 복귀 거리 (m)
+    strategy.overtake.late_braking.exit_recovery_distance: 120.0 # apex 후 레이싱라인 복귀 거리 (m)
 
     # 공통 설정
     strategy.overtake.min_corner_curvature: 0.025

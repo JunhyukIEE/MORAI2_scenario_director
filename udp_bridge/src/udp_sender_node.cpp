@@ -78,7 +78,7 @@ private:
   void setupSubscriptions() {
     // Ego subscription
     ego_cmd_sub_ = create_subscription<scenario_director::msg::VehicleCmd>(
-      "/ego/ctrl_cmd", 10,
+      "/Ego/ctrl_cmd", 10,
       std::bind(&UDPSenderNode::egoCmdCallback, this, std::placeholders::_1));
 
     // NPC subscriptions

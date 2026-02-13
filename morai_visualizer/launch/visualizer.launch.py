@@ -99,7 +99,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'odom_topic',
-            default_value='/ego/odom',
+            default_value='/Ego/odom',
             description='Odometry topic for ego vehicle pose',
         ),
         DeclareLaunchArgument(

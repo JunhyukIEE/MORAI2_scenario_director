@@ -263,7 +263,7 @@ void ReferenceLine::getLateBrakingLine(const std::vector<int>& indices,
       double t = static_cast<double>(i - apex_idx) /
                  static_cast<double>(exit_end_idx - apex_idx);
       // 부드러운 복귀 (1 - (1-t)^2)
-      double smooth_t = 1.0 - (1.0 - t) * (1.0 - t);
+      double smooth_t = (1.0 - std::cos(M_PI * t)) * 0.5;
       offset = actual_inside * (1.0 - smooth_t);
     } else {
       // exit 이후: 레이싱라인
@@ -641,7 +641,8 @@ std::vector<TrajectoryPoint> LocalPathPlanner::rolloutFollowPath(
 
     size_t idx = findNearest(x, y);
 
-    double Ld = std::clamp(5.0 + 0.5 * v, 5.0, 15.0);
+    double Ld = std::clamp(config_.pure_pursuit.lookahead_distance + config_.pure_pursuit.lookahead_ratio * v,
+                           config_.pure_pursuit.min_lookahead, config_.pure_pursuit.max_lookahead);
     auto [target_x, target_y] = lookaheadTarget(idx, Ld);
 
     // Pure pursuit steering
@@ -1162,6 +1163,12 @@ PlanResult LocalPathPlanner::plan(
       double R = computeReward(traj, cand_kappa, lat,
                                opp_future_x, opp_future_y, opp_future_yaw);
 
+      // Following penalty: NPC 전방 가까이 있을 때 reference line 페널티
+      if (opp_ahead && forward_to_opp < 50.0 && std::abs(lat) < 0.5) {
+        double follow_scale = (50.0 - forward_to_opp) / 50.0;
+        R -= config_.weights.w_overtake * follow_scale * 3.0;  // 최대 -1500
+      }
+
       // Hysteresis: reference line 복귀 시 offset 변화 페널티
       if (has_prev_offset_) {
         double offset_change = std::abs(lat - prev_lat_offset_);
@@ -1287,7 +1294,7 @@ PlanResult LocalPathPlanner::plan(
                                  opp_future_x, opp_future_y, opp_future_yaw);
 
         // 회피 경로 보너스 (상대가 가까울수록)
-        double proximity_bonus = std::max(0.0, 30.0 - forward_to_opp) * 10.0;
+        double proximity_bonus = std::max(0.0, 50.0 - forward_to_opp) * 30.0;
         R += proximity_bonus;
 
         // 추월 방향과 일치하면 보너스

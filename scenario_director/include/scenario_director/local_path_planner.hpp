@@ -68,9 +68,17 @@ struct StrategyConfig {
   OvertakeStrategyConfig overtake;
 };
 
+struct PurePursuitParams {
+  double lookahead_distance = 10.0;
+  double min_lookahead = 4.0;
+  double max_lookahead = 50.0;
+  double lookahead_ratio = 0.2;
+};
+
 struct LocalPlannerConfig {
   VehicleParams vehicle;
   PlannerWeights weights;
+  PurePursuitParams pure_pursuit;
 
   double ego_length = 4.0;
   double ego_width = 1.7;

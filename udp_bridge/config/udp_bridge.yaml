@@ -38,18 +38,18 @@ camera_receiver:
     camera.front.port: 6666
     camera.front.enable: true
 
-    # Left front camera
-    camera.left_front.port: 7700
-    camera.left_front.enable: true
+    # Front left camera
+    camera.front_left.port: 7700
+    camera.front_left.enable: true
 
-    # Left rear camera
-    camera.left_rear.port: 7755
-    camera.left_rear.enable: true
+    # Rear left camera
+    camera.rear_left.port: 7755
+    camera.rear_left.enable: true
 
-    # Right front camera
-    camera.right_front.port: 8800
-    camera.right_front.enable: true
+    # Front right camera
+    camera.front_right.port: 8800
+    camera.front_right.enable: true
 
-    # Right rear camera
-    camera.right_rear.port: 8855
-    camera.right_rear.enable: true
+    # Rear right camera
+    camera.rear_right.port: 8855
+    camera.rear_right.enable: true

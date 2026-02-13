@@ -67,6 +67,12 @@ public:
     declare_parameter<double>("gap_check_distance", 30.0);
     declare_parameter<double>("impassable_penalty", 50000.0);
 
+    // Pure Pursuit parameters
+    declare_parameter<double>("pure_pursuit.lookahead_distance", 10.0);
+    declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
+    declare_parameter<double>("pure_pursuit.max_lookahead", 50.0);
+    declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.2);
+
     // Planning settings
     declare_parameter<double>("dt", 0.1);
     declare_parameter<double>("horizon_s", 4.0);
@@ -152,6 +158,11 @@ public:
     config.gap_check_distance = get_parameter("gap_check_distance").as_double();
     config.impassable_penalty = get_parameter("impassable_penalty").as_double();
 
+    config.pure_pursuit.lookahead_distance = get_parameter("pure_pursuit.lookahead_distance").as_double();
+    config.pure_pursuit.min_lookahead = get_parameter("pure_pursuit.min_lookahead").as_double();
+    config.pure_pursuit.max_lookahead = get_parameter("pure_pursuit.max_lookahead").as_double();
+    config.pure_pursuit.lookahead_ratio = get_parameter("pure_pursuit.lookahead_ratio").as_double();
+
     config.dt = get_parameter("dt").as_double();
     config.horizon_s = get_parameter("horizon_s").as_double();
     config.path_ahead_m = get_parameter("path_ahead_m").as_double();
@@ -217,7 +228,7 @@ public:
 
     // Subscribers
     ego_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/ego/odom", 10,
+        "/Ego/odom", 10,
         std::bind(&LocalPathPlannerNode::egoOdomCallback, this, std::placeholders::_1));
 
     // NPC subscriptions (9 NPCs)
@@ -231,15 +242,15 @@ public:
     }
 
     overtake_flag_sub_ = create_subscription<std_msgs::msg::Bool>(
-        "/ego/overtake_flag", 10,
+        "/Ego/overtake_flag", 10,
         std::bind(&LocalPathPlannerNode::overtakeFlagCallback, this, std::placeholders::_1));
 
     overtake_phase_sub_ = create_subscription<std_msgs::msg::Int32>(
-        "/ego/overtake_phase", 10,
+        "/Ego/overtake_phase", 10,
         std::bind(&LocalPathPlannerNode::overtakePhaseCallback, this, std::placeholders::_1));
 
     target_npc_sub_ = create_subscription<std_msgs::msg::Int32>(
-        "/ego/target_npc_id", 10,
+        "/Ego/target_npc_id", 10,
         std::bind(&LocalPathPlannerNode::targetNpcCallback, this, std::placeholders::_1));
 
     // Publishers

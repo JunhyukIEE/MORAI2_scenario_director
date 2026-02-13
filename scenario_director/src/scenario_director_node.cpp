@@ -71,12 +71,15 @@ public:
     declare_parameter<double>("control.brake_kp", 0.1);
     declare_parameter<double>("control.max_throttle", 1.0);
     declare_parameter<double>("control.max_brake", 1.0);
+    declare_parameter<double>("control.max_steer_rate", 2.0);
     declare_parameter<double>("control.loop_hz", 20.0);
     declare_parameter<double>("pure_pursuit.lookahead_distance", 8.0);
     declare_parameter<double>("pure_pursuit.min_lookahead", 4.0);
     declare_parameter<double>("pure_pursuit.max_lookahead", 15.0);
     declare_parameter<double>("pure_pursuit.lookahead_ratio", 0.3);
     declare_parameter<double>("overtake.trigger_distance", 30.0);
+    declare_parameter<double>("overtake.trigger_speed_ratio", 0.3);
+    declare_parameter<double>("overtake.trigger_min_distance", 8.0);
     declare_parameter<double>("overtake.position_distance", 10.0);
     declare_parameter<double>("overtake.execute_distance", 5.0);
     declare_parameter<double>("overtake.complete_distance", 8.0);
@@ -122,11 +125,13 @@ public:
     overtake_complete_distance_ = get_parameter("overtake.complete_distance").as_double();
     speed_advantage_threshold_ = get_parameter("overtake.speed_advantage_threshold").as_double();
     late_braking_trigger_distance_ = get_parameter("overtake.late_braking_trigger_distance").as_double();
+    trigger_speed_ratio_ = get_parameter("overtake.trigger_speed_ratio").as_double();
+    trigger_min_distance_ = get_parameter("overtake.trigger_min_distance").as_double();
     pp_config_ = cfg;
 
     // Ego vehicle subscriptions
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/ego/odom", 10, std::bind(&ScenarioDirectorNode::odomCallback, this, std::placeholders::_1));
+      "/Ego/odom", 10, std::bind(&ScenarioDirectorNode::odomCallback, this, std::placeholders::_1));
     vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
       "/Ego/vehicle/status/velocity_status", 10, std::bind(&ScenarioDirectorNode::velocityCallback, this, std::placeholders::_1));
 
@@ -152,10 +157,10 @@ public:
     local_speed_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       local_speed_topic, 10, std::bind(&ScenarioDirectorNode::localSpeedCallback, this, std::placeholders::_1));
 
-    cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/ego/ctrl_cmd", 10);
-    overtake_pub_ = create_publisher<std_msgs::msg::Bool>("/ego/overtake_flag", 10);
-    overtake_phase_pub_ = create_publisher<std_msgs::msg::Int32>("/ego/overtake_phase", 10);
-    target_npc_pub_ = create_publisher<std_msgs::msg::Int32>("/ego/target_npc_id", 10);
+    cmd_pub_ = create_publisher<scenario_director::msg::VehicleCmd>("/Ego/ctrl_cmd", 10);
+    overtake_pub_ = create_publisher<std_msgs::msg::Bool>("/Ego/overtake_flag", 10);
+    overtake_phase_pub_ = create_publisher<std_msgs::msg::Int32>("/Ego/overtake_phase", 10);
+    target_npc_pub_ = create_publisher<std_msgs::msg::Int32>("/Ego/target_npc_id", 10);
 
     const double loop_hz = get_parameter("control.loop_hz").as_double();
     const int period_ms = static_cast<int>(std::round(1000.0 / std::max(1.0, loop_hz)));
@@ -311,6 +316,13 @@ private:
 
     steering = std::max(-max_steering_, std::min(max_steering_, steering));
 
+    // 조향 rate limit
+    const double max_steer_rate = get_parameter("control.max_steer_rate").as_double();
+    const double dt = 1.0 / std::max(1.0, get_parameter("control.loop_hz").as_double());
+    const double max_delta = max_steer_rate * dt;
+    steering = std::clamp(steering, prev_steering_ - max_delta, prev_steering_ + max_delta);
+    prev_steering_ = steering;
+
     scenario_director::msg::VehicleCmd cmd;
     cmd.throttle = throttle;
     cmd.brake = brake;
@@ -370,34 +382,65 @@ private:
     const double lateral_dist = -dx * heading_y + dy * heading_x;
     const bool is_ahead = forward_dist > 0.0;
     const bool is_beside = std::abs(forward_dist) < 5.0 && std::abs(lateral_dist) < 4.0;
-    const double speed_diff = speed_ - npc.speed;
-    const bool has_speed_advantage = speed_diff > speed_advantage_threshold_;
+    // 방법 B: racing line target speed 기반 감속 시점 감지
+    // line_->getWaypoint(idx).speed는 이미 speed_multiplier 적용된 값
+    double ego_ref_speed = speed_;
+    if (line_) {
+      int ego_idx = line_->getNearestIndex(x_, y_);
+      ego_ref_speed = line_->getWaypoint(ego_idx).speed;
+    }
 
-    // 전방 커브 감지: racing line waypoint의 yaw 변화율로 곡률 추정
-    bool curve_ahead = false;
-    if (line_ && is_ahead) {
+    // 전방 target speed 감소 감지 (브레이킹 존 진입) + 연속 커브 분석
+    bool approaching_braking_zone = false;
+    int consecutive_curves = 0;
+    if (line_) {
       int ego_idx = line_->getNearestIndex(x_, y_);
       int n = static_cast<int>(line_->size());
-      for (int i = 1; i < 80 && (ego_idx + i + 1) < n; ++i) {
-        Waypoint wp0 = line_->getWaypoint(ego_idx + i);
-        Waypoint wp1 = line_->getWaypoint(ego_idx + i + 1);
-        double dyaw = std::atan2(std::sin(wp1.yaw - wp0.yaw), std::cos(wp1.yaw - wp0.yaw));
-        double ds = std::sqrt(std::pow(wp1.x - wp0.x, 2) + std::pow(wp1.y - wp0.y, 2));
-        if (ds > 0.1 && std::abs(dyaw / ds) > 0.025) {
-          curve_ahead = true;
-          break;
+      double prev_speed = line_->getWaypoint(ego_idx).speed;
+      bool in_decel = false;
+      for (int i = 1; i < 150 && (ego_idx + i) < n; ++i) {
+        double wp_speed = line_->getWaypoint(ego_idx + i).speed;
+        if (wp_speed < prev_speed - 0.5) {
+          if (!in_decel) {
+            approaching_braking_zone = true;
+            consecutive_curves++;
+            in_decel = true;
+          }
+        } else if (wp_speed > prev_speed + 0.5) {
+          in_decel = false;
         }
+        prev_speed = wp_speed;
       }
     }
 
+    // 추월 결정: reference speed 기준
+    const double speed_diff = ego_ref_speed - npc.speed;
+    const bool has_speed_advantage = speed_diff > speed_advantage_threshold_;
+
+    // 전방 커브 감지: 연속 커브 또는 브레이킹 존 기반
+    const bool curve_ahead = approaching_braking_zone;
+
+    // 속도 기반 동적 trigger distance (PP 역방향: 빠를수록 짧게)
+    // 고속 직선에서는 가까이서 추월 시작 → 결정적인 추월
+    double dynamic_trigger = std::max(trigger_min_distance_,
+        overtake_trigger_distance_ - trigger_speed_ratio_ * speed_);
+    // NPC와의 접근 속도(closing rate) 반영: 속도차 작을수록 더 가까이서 시작
+    if (speed_diff > 0.0 && speed_diff < 5.0) {
+      double closing_factor = 0.5 + 0.1 * speed_diff;  // 0m/s→0.5배, 5m/s→1.0배
+      dynamic_trigger *= closing_factor;
+    }
+    dynamic_trigger = std::max(trigger_min_distance_, dynamic_trigger);
+
     // 커브가 전방에 있으면 late braking용 확장 trigger 사용
     const double effective_trigger = curve_ahead ?
-        late_braking_trigger_distance_ : overtake_trigger_distance_;
+        late_braking_trigger_distance_ : dynamic_trigger;
 
     // State machine
     switch (overtake_phase_) {
       case OvertakePhase::NONE:
-        if (is_ahead && dist <= effective_trigger && has_speed_advantage) {
+        // 2개 이상 연속 커브: late braking 또는 추종 선택 (추월 억제)
+        // 1개 이하 커브(직선 포함): 추월 시도
+        if (is_ahead && dist <= effective_trigger && has_speed_advantage && consecutive_curves <= 1) {
           overtake_phase_ = OvertakePhase::APPROACH;
           overtake_state_ = OvertakeState::ACTIVE;
           overtake_start_time_ = now();
@@ -539,6 +582,8 @@ private:
   double overtake_complete_distance_ = 8.0;
   double speed_advantage_threshold_ = 2.0;
   double late_braking_trigger_distance_ = 70.0;
+  double trigger_speed_ratio_ = 0.3;
+  double trigger_min_distance_ = 8.0;
   PurePursuitConfig pp_config_;
 
   // Ego state
@@ -560,6 +605,9 @@ private:
   bool has_local_path_ = false;
   bool has_local_speeds_ = false;
   rclcpp::Time last_local_path_time_;
+
+  // Steering rate limit
+  double prev_steering_ = 0.0;
 
   // Overtake state
   enum class OvertakePhase { NONE = 0, APPROACH = 1, POSITION = 2, EXECUTE = 3, COMPLETE = 4 };

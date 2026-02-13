@@ -7,7 +7,8 @@ def generate_launch_description():
     share = get_package_share_directory('scenario_director')
     params = [
         f"{share}/config/scenario_director.yaml",
-        f"{share}/config/local_path_planner.yaml"
+        f"{share}/config/local_path_planner.yaml",
+        f"{share}/config/pure_pursuit.yaml"
     ]
 
     return LaunchDescription([

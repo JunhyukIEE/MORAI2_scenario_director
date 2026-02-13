@@ -7,7 +7,9 @@ scenario_director:
     vehicle.max_steering: 0.436
     vehicle.speed_multiplier: 1.0
 
-    overtake.trigger_distance: 35.0      # 추월 시작 거리
+    overtake.trigger_distance: 35.0      # 추월 시작 거리 (기본값, 속도에 따라 줄어듦)
+    overtake.trigger_speed_ratio: 0.8    # 자차 속도 1m/s당 trigger 축소량 (m)
+    overtake.trigger_min_distance: 4.0   # 추월 trigger 최소 거리 (m)
     overtake.position_distance: 30.0     # 위치 선점 단계 거리
     overtake.late_braking_trigger_distance: 70.0  # 커브 전방 감지 시 확장 trigger 거리
     overtake.execute_distance: 16.0      # 실행 단계 거리 (나란히 달리는 거리)
@@ -17,6 +19,7 @@ scenario_director:
     local_path.topic: "/local_planner/path"
     local_speed.topic: "/local_planner/path_speeds"
 
+    control.max_steer_rate: 2.0   # rad/s (조향 변화율 제한)
     control.loop_hz: 100.0
     control.throttle_kp: 0.5
     control.brake_kp: 0.1
@@ -26,7 +29,7 @@ scenario_director:
 # Planning settings
 local_path_planner:
   ros__parameters:
-    dt: 0.1                         # Time step (seconds)
+    dt: 0.05                        # Time step (seconds)
     horizon_s: 6.0                  # Planning horizon
     path_ahead_m: 300.0             # Path lookahead distance
     planning_rate_hz: 30.0          # Planning frequency (Hz)

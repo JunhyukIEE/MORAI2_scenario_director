@@ -123,7 +123,7 @@ public:
 
     // Ego vehicle subscription for collision avoidance
     ego_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/ego/odom", 10, std::bind(&NPCControllerNode::egoOdomCallback, this, std::placeholders::_1));
+      "/Ego/odom", 10, std::bind(&NPCControllerNode::egoOdomCallback, this, std::placeholders::_1));
     ego_vel_sub_ = create_subscription<morai_msgs::msg::Float64Stamped>(
       "/Ego/vehicle/status/velocity_status", 10, std::bind(&NPCControllerNode::egoVelocityCallback, this, std::placeholders::_1));
 

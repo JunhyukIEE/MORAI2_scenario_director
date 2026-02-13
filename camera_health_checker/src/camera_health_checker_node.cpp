@@ -33,10 +33,10 @@ public:
       "topic_names",
       {
         "/sensing/camera/front/image_raw",
-        "/sensing/camera/left_front/image_raw",
-        "/sensing/camera/left_rear/image_raw",
-        "/sensing/camera/right_front/image_raw",
-        "/sensing/camera/right_rear/image_raw"
+        "/sensing/camera/front_left/image_raw",
+        "/sensing/camera/rear_left/image_raw",
+        "/sensing/camera/front_right/image_raw",
+        "/sensing/camera/rear_right/image_raw"
       });
 
     diagnostics_topic_ = declare_parameter<std::string>("diagnostics_topic", "/diagnostics_camera");

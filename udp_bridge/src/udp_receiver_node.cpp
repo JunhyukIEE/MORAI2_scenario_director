@@ -93,9 +93,9 @@ public:
     }
 
     // Ego publishers
-    ego_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/ego/odom", 10);
+    ego_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/Ego/odom", 10);
     ego_velocity_pub_ = create_publisher<morai_msgs::msg::Float64Stamped>("/Ego/vehicle/status/velocity_status", 10);
-    ego_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/ego/vehicle/acceleration", 10);
+    ego_accel_pub_ = create_publisher<std_msgs::msg::Float64>("/Ego/vehicle/acceleration", 10);
     ego_steering_pub_ = create_publisher<morai_msgs::msg::Float64Stamped>("/Ego/vehicle/status/steering_status", 10);
 
     // NPC publishers
